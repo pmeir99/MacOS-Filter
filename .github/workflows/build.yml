@@ -78,9 +78,16 @@ jobs:
       - name: Exercise filtering in Chromium
         run: |
           python3 -m venv "$RUNNER_TEMP/mf-browser"
-          "$RUNNER_TEMP/mf-browser/bin/pip" install --quiet playwright==1.55.0
+          "$RUNNER_TEMP/mf-browser/bin/pip" install --quiet pillow playwright==1.55.0
           "$RUNNER_TEMP/mf-browser/bin/playwright" install chromium
           "$RUNNER_TEMP/mf-browser/bin/python" scripts/browser-smoke.py
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Layout-comparison
+          path: layout-comparison/*.png
+          if-no-files-found: ignore
 
       - name: Wait for the runner that wins and builds
         id: winner

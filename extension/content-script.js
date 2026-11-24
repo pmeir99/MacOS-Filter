@@ -35,73 +35,69 @@
       }
     }
 
+    const svgNS = "http://www.w3.org/2000/svg";
+    function svg(name, attributes) {
+      const element = document.createElementNS(svgNS, name);
+      for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, value);
+      return element;
+    }
+    const sizes = new ResizeObserver(entries => {
+      for (const {target} of entries) setMaskGeometry(target);
+    });
+
     function removeOverlay(image) {
-      const overlay = overlays.get(image);
-      if (overlay) overlay.remove();
+      const layer = overlays.get(image);
+      if (!layer) return;
+      if (image.style.getPropertyValue("filter") === layer.applied) {
+        if (layer.original) image.style.setProperty("filter", layer.original, layer.priority);
+        else image.style.removeProperty("filter");
+      }
+      sizes.unobserve(image);
+      layer.svg.remove();
       overlays.delete(image);
       watched.delete(image);
+      image.removeAttribute("data-macos-filter-overlay");
     }
 
-    function setMaskGeometry(image, overlay) {
-      const rect = image.getBoundingClientRect();
-      overlay.style.left = rect.left + "px";
-      overlay.style.top = rect.top + "px";
-      overlay.style.width = rect.width + "px";
-      overlay.style.height = rect.height + "px";
-      overlay.style.display = rect.width > 0 && rect.height > 0 ? "block" : "none";
-
-      if (overlay.dataset.personMask === "true") {
-        const style = getComputedStyle(image);
-        const geometry = MacOSFilterHelpers.maskGeometry(
-          rect.width,
-          rect.height,
-          image.naturalWidth,
-          image.naturalHeight,
-          style.objectFit,
-          style.objectPosition
-        );
-        if (geometry) {
-          const size = geometry.width + "px " + geometry.height + "px";
-          const position = geometry.left + "px " + geometry.top + "px";
-          overlay.style.maskSize = size;
-          overlay.style.maskPosition = position;
-          overlay.style.webkitMaskSize = size;
-          overlay.style.webkitMaskPosition = position;
-        }
-      }
+    function setMaskGeometry(image) {
+      const layer = overlays.get(image);
+      if (!layer?.mask) return;
+      const style = getComputedStyle(image);
+      const x = parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
+      const y = parseFloat(style.borderTopWidth) + parseFloat(style.paddingTop);
+      const width = image.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      const height = image.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+      const g = MacOSFilterHelpers.maskGeometry(width,height,image.naturalWidth,image.naturalHeight,style.objectFit,style.objectPosition);
+      if (!g) return;
+      for (const [key,value] of Object.entries({x:x+g.left,y:y+g.top,width:g.width,height:g.height})) layer.mask.setAttribute(key,value);
     }
 
     function placeOverlay(image, result) {
       removeOverlay(image);
-      const overlay = document.createElement("div");
-      overlay.setAttribute("aria-hidden", "true");
-      overlay.dataset.macosFilterOverlay = "true";
-      overlay.style.position = "fixed";
-      overlay.style.zIndex = "2147483647";
-      overlay.style.pointerEvents = "none";
-      overlay.style.boxSizing = "border-box";
-      overlay.style.backgroundColor = result.settings.overlayColor;
-      overlay.style.opacity = String(result.settings.opacity);
-      overlay.style.overflow = "hidden";
-
-      if (!MacOSFilterHelpers.shouldCoverWholeImage(result)) {
-        const maskURL = "url(data:image/png;base64," + result.maskData + ")";
-        overlay.dataset.personMask = "true";
-        overlay.style.maskImage = maskURL;
-        overlay.style.maskRepeat = "no-repeat";
-        overlay.style.webkitMaskImage = maskURL;
-        overlay.style.webkitMaskRepeat = "no-repeat";
+      const id = "mf-" + Array.from(crypto.getRandomValues(new Uint32Array(4))).join("-");
+      const resource = svg("svg",{width:0,height:0,"aria-hidden":"true"});
+      resource.style.cssText="position:absolute!important;width:0!important;height:0!important;pointer-events:none!important";
+      const filter = svg("filter",{id,x:"0%",y:"0%",width:"100%",height:"100%","color-interpolation-filters":"sRGB"});
+      const partial = !MacOSFilterHelpers.shouldCoverWholeImage(result);
+      const blur = result.settings.overlayStyle === "blur";
+      filter.append(blur ? svg("feGaussianBlur",{in:"SourceGraphic",stdDeviation:16,edgeMode:"duplicate",result:"paint"})
+                         : svg("feFlood",{"flood-color":result.settings.overlayColor,"flood-opacity":result.settings.opacity,result:"paint"}));
+      let mask;
+      if (partial) {
+        mask=svg("feImage",{href:"data:image/png;base64,"+result.maskData,preserveAspectRatio:"none",result:"region"});
+        filter.append(mask,svg("feComposite",{in:"paint",in2:"region",operator:"in",result:"selected"}));
       }
-      if (result.settings.overlayStyle === "blur") {
-        overlay.style.backgroundColor = "rgba(0,0,0,0.18)";
-        overlay.style.backdropFilter = "blur(24px)";
-        overlay.style.webkitBackdropFilter = "blur(24px)";
-      }
-
-      document.documentElement.appendChild(overlay);
-      overlays.set(image, overlay);
+      filter.append(svg("feComposite",{in:partial?"selected":"paint",in2:"SourceGraphic",operator:"over"}));
+      resource.append(filter);
+      document.documentElement.append(resource);
+      const original=image.style.getPropertyValue("filter"), priority=image.style.getPropertyPriority("filter");
+      const previous=getComputedStyle(image).filter;
+      image.style.setProperty("filter","url(\"#"+id+"\")"+(previous==="none"?"":" "+previous),"important");
+      overlays.set(image,{svg:resource,mask,original,priority,applied:image.style.getPropertyValue("filter")});
+      image.setAttribute("data-macos-filter-overlay","true");
       watched.add(image);
-      setMaskGeometry(image, overlay);
+      sizes.observe(image);
+      setMaskGeometry(image);
     }
 
     function coverOnFailure(image, errorMessage) {
@@ -226,6 +222,7 @@
     state.stop = () => {
       stopped = true;
       observer.disconnect();
+      sizes.disconnect();
       document.querySelectorAll('img').forEach(restoreImage);
       for (const image of watched) {
         removeOverlay(image);
