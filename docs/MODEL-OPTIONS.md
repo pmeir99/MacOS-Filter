@@ -1,51 +1,26 @@
-# On-device model options
+# Model options and capability map
 
-## Recommended structure
+Classification says what may be in an image; segmentation says which pixels to cover. They are separate jobs and often need separate providers.
 
-Keep inference in the macOS Swift process. The extension owns page discovery and overlays and talks to the host through Chrome Native Messaging. Expose rules in the UI only when the installed provider advertises that capability.
+| Candidate | Classification | Pixel masks | Local macOS path | Key limitation |
+| --- | --- | --- | --- | --- |
+| Apple Vision person segmentation | None | Person silhouette | Built into macOS Vision | Does not classify skin, clothing, nudity, or modesty |
+| OpenNSFW2 | Porn probability | None | Evaluate export to Core ML | Porn-focused binary probability; no seven bands or body location |
+| NudeNet | Exposed/covered body-part and face detections | Bounding boxes | ONNX runtime or convert/test | Not pixel masks; AGPL-3.0 license |
+| MediaPipe Image Segmenter | None | Model-dependent person, hair, face, skin, clothing labels | MediaPipe Tasks Vision or model conversion | Model-specific quality/runtime; not modesty classification |
+| YOLOv8 / Ultralytics | Depends on weights | Boxes, instance masks, pose, classes | Convertable models or runtime | Generic detector is not a modesty model; AGPL-3.0 default licensing |
+| SAM 3 | Prompt-conditioned object masks | Prompted regions | Separate model/runtime | Segmenter, not classifier; model licensing and asset cost |
 
-Treat each image decision as two separate outputs:
+## Current provider
 
-1. Classification: image or person-level labels, confidence scores, and optional visual-presentation labels.
-2. Segmentation: person, skin, clothing, or body-region masks used to paint over pixels.
+The app currently calls Apple Vision VNGeneratePersonSegmentationRequest using the accurate quality setting. It returns one person matte per image. The provider does not return labels for exposure or clothing. It does not identify gender. The Vision implementation ships with macOS; no standalone model weight files are currently included in the app or extension.
 
-A classifier can decide that an image is in a category without locating the pixels to cover. A segmenter can find a person without deciding how modest or explicit the image is. Some modes need both.
+## Suggested bake-off
 
-## Available paths
+1. Keep Vision as the baseline for whole-person masks.
+2. Evaluate OpenNSFW2 for a coarse explicit-content signal; export a candidate to Core ML only if output parity and performance remain acceptable.
+3. Evaluate the MediaPipe model that outputs skin/clothing classes for a skin-mask path.
+4. Test NudeNet only in an isolated local branch if the body-part signals help. Its boxes are not a replacement for pixel masks, and do not fold AGPL code into a distributable bundle without resolving licensing.
+5. Compare candidates on a local, human-reviewed corpus. Measure false negatives by category, false positives, mask leakage, cold/warm latency, model load time, peak memory, and energy. Use separate classifier and segmenter roles; do not majority-vote outputs.
 
-| Option | Useful output | Device/runtime fit | Limits |
-| --- | --- | --- | --- |
-| Apple Vision person segmentation | Person matte | Built into macOS; no model download; native Vision runtime | Person silhouette only; no exposed-skin, clothing, gender, or modesty labels |
-| NudeNet 320n or 640m ONNX | 18 body-part and face labels, including exposed/covered anatomy and FACE_MALE/FACE_FEMALE detections | Runs locally through an ONNX/Core ML adapter; model files are separate | Box detections, not pixel-accurate skin masks; no seven-level modesty score; AGPL-3.0 license must be evaluated before distribution |
-| U²-Net clothing segmentation converted to Core ML | Upper, lower, and full-body clothing regions | An available Core ML package is about 84 MB; on-device model compile/download | Does not directly label exposed skin or classify modesty; source/model provenance and license need review |
-| Apple Core AI ImageSegmenter with SAM 3 | Prompt-based masks for concepts or objects | Apple Silicon; macOS 27; optional model download. Apple reports a 623 MB sample asset | Large, gated model assets; segmentation is not a calibrated seven-level content classifier |
-
-The Vision option is the best dependable baseline for image-wide and all-person modes. It is already implemented. SAM 3 is a promising optional segmentation path for prompt-driven regions, but it does not replace an exposure classifier. NudeNet has some matching labels, but its boxes and license mean we should test it as a separately installed provider before deciding whether it belongs in this app. The clothing parser may contribute to a skin-mask pipeline, but its documented output is clothing labels, not a validated skin mask.
-
-## Mapping requested rules
-
-- Entire image: deterministic overlay; no model required.
-- All people: Vision person mask.
-- One selected person or male/female visual presentation: needs person instances and a reliable face/person association. NudeNet's face labels are visual model classes, not a person's actual gender; occluded or missing faces need a defined fallback.
-- Skin only or selected body parts: needs a pixel-level human parser or body-part segmentation model. A rectangular detector box is not an adequate skin mask.
-- Seven modesty levels: no single available model found that directly provides calibrated, consistent scores for the examples. A workable route is a local image/person classifier plus body-part/exposure detections and configurable thresholds. The definitions need to be observable labels such as explicit activity, exposed intimate anatomy, underwear/swimwear, visible skin amount, and clothing coverage. “Beach,” “tight,” and “modest” are contextual or subjective; treat them as configurable review categories rather than objective model truths.
-
-## Proposed seven-level scale for evaluation
-
-These are clearer draft definitions for a configurable rule set. They are labels to test, not claims that an off-the-shelf model can currently score them reliably.
-
-| Level | Observable definition |
-| --- | --- |
-| 1 — Explicit sexual activity | Sexual acts or explicit sexual contact |
-| 2 — Explicit nudity | Exposed genitals, anus, or buttocks; exposed breasts |
-| 3 — Underwear or lingerie | Underwear, lingerie, or implied nudity; sexualized framing can be an optional tag |
-| 4 — Swimwear or substantial exposure | Swimwear, bare torso, or substantial exposed skin; beach/pool context can be a separate optional tag |
-| 5 — Moderate exposure | Visible shoulders, upper arms, midriff, or thighs/knees |
-| 6 — Everyday covered clothing | Body covered apart from face, neck, and hands; ordinary clothing fit |
-| 7 — Full, loose coverage | Long sleeves, high neckline, covered legs, and loose fit |
-
-This keeps measurable tags (body exposure, clothing type, exposed anatomy) separate from subjective/contextual tags (sexualized framing, beach context, tightness, or modesty). The rule engine can then let the user choose which tags count and the confidence threshold for each. “Beach” should not automatically mean immodest unless the user chooses that rule.
-
-A future rule can say: if any enabled tag is at or above the selected severity threshold, cover the full image, the matched person, or the detected region. This requires both classification and, for localized painting, a matching mask. Custom rules should select outputs the installed provider actually supplies.
-
-No mode should be advertised as reliable until it is evaluated on varied images with false-negative/false-positive rates and mask alignment. The initial version therefore offers only full-image and all-person cover.
+No provider should be considered selected for production until it passes this evaluation on the target M4/16 GB Mac. See PRODUCT-GUIDE.md for interception, rules, rendering, and roadmap.
