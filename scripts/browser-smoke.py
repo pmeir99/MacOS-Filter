@@ -56,10 +56,10 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     sw_file=extension / "service-worker.js"
     sw_file.write_text(sw_file.read_text().replace("function nativeRequest(action, imageData, profile) {",
         """async function nativeRequest(action, imageData, profile) {
-          const {fixtureMask}=await chrome.storage.local.get('fixtureMask');
+          const {fixtureMask,fixtureBlur}=await chrome.storage.local.get(['fixtureMask','fixtureBlur']);
           if (fixtureMask && action === 'segment') await new Promise(resolve=>setTimeout(resolve,700));
           if (fixtureMask) return action === 'getSettings'
-            ? {ok:true,settings:{enabled:true,mode:'allPeople',opacity:1,overlayColor:'#000000',overlayStyle:'solid'}}
+            ? {ok:true,settings:{enabled:true,mode:'allPeople',opacity:1,overlayColor:'#000000',overlayStyle:fixtureBlur?'blur':'solid',blurRadius:8}}
             : {ok:true,maskData:fixtureMask};
         """))
     ctx = pw.chromium.launch_persistent_context(str(Path(tmp) / "profile"), channel="chromium",
@@ -124,6 +124,28 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     assert partial.getpixel((65,62)) == (0,0,0)
     assert partial.getpixel((137,75)) == a.getpixel((137,75))
     assert ImageChops.difference(a,partial).crop(bounds).getbbox() is None
+    # Fine stripes lose contrast only inside the selected half. Compare against
+    # the exact same uncensored frame, including the overlapping Save button.
+    stripes=Image.new("RGB",(160,90),"white")
+    for i in range(0,160,4):
+        stripes.paste((0,0,0),(i,0,i+2,90))
+    buf=BytesIO()
+    stripes.save(buf,format="PNG")
+    stripe_url="data:image/png;base64,"+base64.b64encode(buf.getvalue()).decode()
+    enable(False)
+    sample.locator("img").evaluate("(img,url)=>img.src=url",stripe_url)
+    _,stripe_before=capture("blur-original")
+    page.evaluate("chrome.storage.local.set({fixtureBlur:true})")
+    enable(True)
+    sample.reload()
+    sample.locator("img").evaluate("(img,url)=>img.src=url",stripe_url)
+    sample.wait_for_selector("img[data-macos-filter-overlay]")
+    _,blurred=capture("blur-mask")
+    low,high=blurred.crop((55,55,82,77)).convert("L").getextrema()
+    assert high-low<40,(low,high)
+    assert ImageChops.difference(blurred,stripe_before).crop((115,55,145,77)).getbbox() is None
+    assert ImageChops.difference(blurred,stripe_before).crop(bounds).getbbox() is None
+    page.evaluate("chrome.storage.local.remove('fixtureBlur')")
     page.locator("#presentation").select_option("loading")
     page.get_by_role("button",name="Save rules").click()
     page.wait_for_function("chrome.storage.local.get('siteRules').then(v=>v.siteRules.presentation==='loading')")
