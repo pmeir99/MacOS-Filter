@@ -116,12 +116,13 @@ struct Models {
         return scores;
     }
 
-    Bytes region(CGImageRef crop,bool onlySkin,bool face) {
+    Bytes region(CGImageRef crop,bool onlySkin,bool face,bool &foundPerson) {
         const auto logits=infer(crop,false);
         Bytes labels(256*256), grown(labels.size());
         for (size_t i=0;i<labels.size();++i) {
             const float *p=logits.data()+i*6;
             int label=int(std::max_element(p,p+6)-p);
+            foundPerson |= label!=0;
             labels[i]=(onlySkin?(label==2 || (face && label==3)):label!=0)?255:0;
         }
         for (int y=0;y<256;y++) for(int x=0;x<256;x++)
@@ -164,9 +165,10 @@ struct Models {
                 if(([target isEqual:@"masculine"] && delta < -0.025f) || ([target isEqual:@"feminine"] && delta > 0.025f)) continue;
                 if(levels && level>[(policy[@"maskLevel"] ?: @5) intValue]) continue;
             }
+            bool foundPerson=false;
             auto alpha=region(crop.get(),[policy[@"mode"] isEqual:@"skin"] || [policy[@"paintSkin"] boolValue],
-                              [(policy[@"includeFace"] ?: @YES) boolValue]);
-            if(detected && std::none_of(alpha.begin(),alpha.end(),[](auto a){return a!=0;})) return @{@"full":@YES};
+                              [(policy[@"includeFace"] ?: @YES) boolValue],foundPerson);
+            if(detected && !foundPerson) return @{@"full":@YES};
             for(int row=t;row<b;row++) for(int col=l;col<r;col++) {
                 const double fx=std::clamp(((col-l+0.5)*256/(r-l))-0.5,0.,255.);
                 const double fy=std::clamp(((row-t+0.5)*256/(b-t))-0.5,0.,255.);

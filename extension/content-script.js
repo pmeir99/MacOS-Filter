@@ -69,20 +69,52 @@
       image.removeAttribute("data-macos-filter-overlay");
     }
 
+    function finishCoverTransition(image) {
+      for (const animation of image.getAnimations()) {
+        if (animation instanceof CSSTransition && ["filter","background-color"].includes(animation.transitionProperty)) {
+          animation.finish();
+        }
+      }
+    }
+
+    function syncLayer(image) {
+      const layer=overlays.get(image);
+      if (!layer) return;
+      // Sites may replace inline styles while recycling or animating a card.
+      // Preserve their newest declarations so pausing restores the current design.
+      if (image.style.getPropertyValue("filter") !== layer.applied) {
+        layer.original=image.style.getPropertyValue("filter");
+        layer.priority=image.style.getPropertyPriority("filter");
+        const author=getComputedStyle(image).filter;
+        const filter=layer.black ? "brightness(0)" :
+          (author==="none"?"":author+" ")+"url("+JSON.stringify(layer.reference)+")";
+        image.style.setProperty("filter",filter,"important");
+        layer.applied=image.style.getPropertyValue("filter");
+        finishCoverTransition(image);
+      }
+      if (layer.black && image.style.getPropertyValue("background-color")!==layer.black) {
+        layer.background=image.style.getPropertyValue("background-color");
+        layer.backgroundPriority=image.style.getPropertyPriority("background-color");
+        image.style.setProperty("background-color","#000","important");
+      }
+      setMaskGeometry(image);
+    }
     function setMaskGeometry(image) {
       const layer = overlays.get(image);
       if (!layer?.mask) return;
       const style = getComputedStyle(image);
       const x = parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
       const y = parseFloat(style.borderTopWidth) + parseFloat(style.paddingTop);
-      const width = image.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-      const height = image.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+      const borderBox = style.boxSizing === "border-box";
+      const width = parseFloat(style.width) - (borderBox ? x+parseFloat(style.paddingRight)+parseFloat(style.borderRightWidth) : 0);
+      const height = parseFloat(style.height) - (borderBox ? y+parseFloat(style.paddingBottom)+parseFloat(style.borderBottomWidth) : 0);
       const g = MacOSFilterHelpers.maskGeometry(width,height,image.naturalWidth,image.naturalHeight,style.objectFit,style.objectPosition);
       if (!g) {
         // A hidden/zero-size image may become visible later, at which point resize reruns.
         if (width > 0 && height > 0) coverOnFailure(image, "Unsupported image crop.");
         return;
       }
+      for (const [key,value] of Object.entries({x,y,width,height})) layer.clip.setAttribute(key,value);
       for (const [key,value] of Object.entries({x:x+g.left,y:y+g.top,width:g.width,height:g.height})) layer.mask.setAttribute(key,value);
     }
 
@@ -95,6 +127,7 @@
         const background=image.style.getPropertyValue("background-color"), backgroundPriority=image.style.getPropertyPriority("background-color");
         image.style.setProperty("background-color","#000","important");
         image.style.setProperty("filter","brightness(0)","important");
+        finishCoverTransition(image);
         overlays.set(image,{original,priority,applied:image.style.getPropertyValue("filter"),background,backgroundPriority,
           black:image.style.getPropertyValue("background-color")});
         watched.add(image);
@@ -109,10 +142,11 @@
       const blur = result.settings.overlayStyle === "blur";
       filter.append(blur ? svg("feGaussianBlur",{in:"SourceGraphic",stdDeviation:result.settings.blurRadius || 16,edgeMode:"duplicate",result:"paint"})
                          : svg("feFlood",{"flood-color":result.settings.overlayColor,"flood-opacity":result.settings.opacity,result:"paint"}));
-      let mask;
+      let mask, clip;
       if (partial) {
-        mask=svg("feImage",{href:"data:image/png;base64,"+result.maskData,preserveAspectRatio:"none",result:"region"});
-        filter.append(mask,svg("feComposite",{in:"paint",in2:"region",operator:"in",result:"selected"}));
+        mask=svg("feImage",{href:"data:image/png;base64,"+result.maskData,preserveAspectRatio:"none",result:"rawRegion"});
+        clip=svg("feFlood",{"flood-color":"white",result:"contentBox"});
+        filter.append(mask,clip,svg("feComposite",{in:"rawRegion",in2:"contentBox",operator:"in",result:"region"}),svg("feComposite",{in:"paint",in2:"region",operator:"in",result:"selected"}));
       }
       if (partial && blur) {
         filter.append(svg("feComposite",{in:"SourceGraphic",in2:"region",operator:"out",result:"uncovered"}),
@@ -122,16 +156,17 @@
       }
       resource.append(filter);
       document.documentElement.append(resource);
-      const reference = new URL(location.href);
-      reference.hash = id;
-      image.style.setProperty("filter",(previous==="none"?"":previous+" ")+"url("+JSON.stringify(reference.href)+")","important");
+      const documentURL = location.href.split("#")[0];
+      const reference = (document.baseURI.split("#")[0] === documentURL ? "" : documentURL) + "#" + id;
+      image.style.setProperty("filter",(previous==="none"?"":previous+" ")+"url("+JSON.stringify(reference)+")","important");
       const previousContent=image.style.getPropertyValue("content"), contentPriority=image.style.getPropertyPriority("content");
       let frozen;
       if (partial && result.snapshot) {
         image.style.setProperty("content",'url("'+result.snapshot+'")',"important");
         frozen=image.style.getPropertyValue("content");
       }
-      overlays.set(image,{frozen,previousContent,contentPriority,svg:resource,mask,original,priority,applied:image.style.getPropertyValue("filter")});
+      finishCoverTransition(image);
+      overlays.set(image,{clip,reference,frozen,previousContent,contentPriority,svg:resource,mask,original,priority,applied:image.style.getPropertyValue("filter")});
       image.setAttribute("data-macos-filter-overlay","true");
       watched.add(image);
       if (partial) sizes.observe(image);
@@ -304,7 +339,7 @@
           });
         } else if (record.type === "attributes" && ["style","class"].includes(record.attributeName)) {
           const target=record.target;
-          if (overlays.has(target)) setMaskGeometry(target);
+          if (overlays.has(target)) syncLayer(target);
           else if (target instanceof HTMLElement && target.childElementCount) {
             target.querySelectorAll("img[data-macos-filter-overlay]").forEach(setMaskGeometry);
           }

@@ -116,6 +116,7 @@ if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
     swift build --product FilterHost
     HOST="$(swift build --show-bin-path)/FilterHost"
   fi
+  "$MODEL_DIR/advanced/env/bin/python" scripts/compare-policy.py "$SHIPPED" "$MODEL_DIR/portrait.png"
   python3 scripts/test-settings-push.py "$HOST"
   python3 -m venv "$MODEL_DIR/qa"
   "$MODEL_DIR/qa/bin/pip" -q install Pillow

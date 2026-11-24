@@ -19,18 +19,18 @@ cp "$("$python" -c 'import pathlib, onnxruntime; print(pathlib.Path(onnxruntime.
 "$python" scripts/prompt-bank.py "$work" "$resources/PolicyModels"
 "$python" scripts/test-policy-routing.py "$resources/PolicyModels"
 # Python prepares the prompt embeddings during the build. Ship only the native worker and ONNX runtime.
-fetch "https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-osx-arm64-1.20.1.tgz" "$work/ort.tgz"
-tar -xzf "$work/ort.tgz" -C "$work"
-ort="$work/onnxruntime-osx-arm64-1.20.1"
+package="https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.20.1/microsoft.ml.onnxruntime.1.20.1.nupkg"
+fetch "$package" "$work/onnxruntime.nupkg"
+ort="$work/ort"
+unzip -q "$work/onnxruntime.nupkg" 'build/native/include/*' 'runtimes/osx-arm64/native/*' -d "$ort"
 contents="$(dirname "$resources")"
 mkdir -p "$contents/Frameworks"
 lib="$contents/Frameworks/libonnxruntime.1.20.1.dylib"
-cp -L "$ort/lib/libonnxruntime.dylib" "$lib"
+cp "$ort/runtimes/osx-arm64/native/libonnxruntime.dylib" "$lib"
 chmod u+w "$lib"
 install_name_tool -id @rpath/libonnxruntime.1.20.1.dylib "$lib"
 codesign --force --sign - --timestamp=none "$lib"
-xcrun clang++ -arch arm64 -mmacosx-version-min=13.0 -O2 -std=c++17 -fobjc-arc -I"$ort/include" native/PolicyWorker.mm "$lib" \
+xcrun clang++ -arch arm64 -mmacosx-version-min=13.0 -O2 -std=c++17 -fobjc-arc -I"$ort/build/native/include" native/PolicyWorker.mm "$lib" \
   -framework Foundation -framework CoreGraphics -framework ImageIO -Wl,-rpath,@executable_path/../Frameworks -o "$contents/MacOS/PolicyWorker"
 codesign --force --sign - --timestamp=none "$contents/MacOS/PolicyWorker"
 otool -L "$contents/MacOS/PolicyWorker" | grep -F '@rpath/libonnxruntime.1.20.1.dylib'
-rm "$resources/PolicyModels/prompts.npy"

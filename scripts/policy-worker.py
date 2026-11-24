@@ -6,7 +6,7 @@ import onnxruntime as ort
 from PIL import Image, ImageOps, ImageFilter, ImageChops
 
 root = Path(sys.argv[1])
-bank = np.load(root/"prompts.npy",allow_pickle=False)
+bank = np.fromfile(root/"prompts.f32",dtype="<f4").reshape(13,512)
 options = ort.SessionOptions()
 options.intra_op_num_threads = 3
 sessions = {}

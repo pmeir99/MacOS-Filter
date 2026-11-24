@@ -21,6 +21,7 @@ function field(section,key,title,type,values) {
   const row=document.createElement("label"), label=document.createElement("span");
   row.className="row"+(type==="text"?" long":""); label.textContent=title;
   input.id=key;
+  input.setAttribute("aria-label",title);
   const isRule=key.startsWith("siteRules."), property=isRule?key.slice(10):key;
   const product=key.startsWith("product-");
   const initial=product?settings.products.includes(key.slice(8)):(isRule?settings.siteRules:settings)[property];

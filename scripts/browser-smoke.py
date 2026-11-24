@@ -70,6 +70,7 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
         args=[f"--disable-extensions-except={extension}", f"--load-extension={extension}"])
     worker = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
     page = ctx.new_page()
+    page.on("pageerror",lambda error: print("Options page error:",error,flush=True))
     base = worker.url.rsplit("/", 1)[0]
     page.goto(base + "/popup.html")
     settings = {"enabled":False, "mode":"allPeople", "opacity":1, "overlayColor":"#000000",
@@ -203,6 +204,8 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     assert sample.locator("feImage").count()==97
     # Verify the actual options page, per-field autosave, and restoration on reload.
     page.goto(base+"/options.html")
+    page.wait_for_function("!document.querySelector('#fields').disabled || document.querySelector('#status').textContent.length>0")
+    assert not page.locator("#fields").is_disabled(), page.locator("#status").inner_text()
     page.get_by_label("Mask style",exact=True).select_option("blur")
     page.wait_for_function("chrome.storage.local.get('policy').then(v=>JSON.parse(v.policy).overlayStyle==='blur')")
     page.reload()
@@ -218,5 +221,9 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     sample.wait_for_selector('img[data-macos-filter-status="blocked-local-filter-error"]')
     _,failed=capture("invalid-mask")
     assert failed.getpixel((65,62))==(0,0,0) and failed.getpixel((137,75))==(0,0,0)
+    sample.locator("img").evaluate("img=>img.style.filter='sepia(1)'")
+    sample.wait_for_function("document.querySelector('img').style.filter==='brightness(0)'")
+    page.locator("#enabled").uncheck()
+    sample.wait_for_function("document.querySelector('img').style.filter==='sepia(1)'")
     ctx.close()
 server.shutdown()
