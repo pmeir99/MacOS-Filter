@@ -1,4 +1,4 @@
-importScripts("helpers.js");
+importScripts("helpers.js","policy.js");
 
 const HOST_NAME = "com.pmeir99.macos_filter";
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -89,7 +89,7 @@ async function filterImage(url) {
     return { ok: true, coverWholeImage: true, settings };
   }
   const result = await analyzeImage(url);
-  return { ...result, settings };
+  return { ...result, settings: result.coverWholeImage || !result.ok ? {...settings, opacity:1, overlayStyle:'solid'} : settings };
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -100,39 +100,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-async function injectIntoTab(tabId) {
-  try {
-    await chrome.scripting.executeScript({
-      target: { tabId, allFrames: true },
-      files: ["helpers.js", "content-script.js"]
-    });
-  } catch (_) {
-    // Restricted browser pages and permission transitions cannot accept scripts.
-  }
+
+async function configure(enabled, input) {
+  const rules = FilterPolicy.parse(input);
+  const registrations = await chrome.scripting.getRegisteredContentScripts({ids:["filter"]});
+  const script = {id:"filter", matches:["http://*/*","https://*/*"], allFrames:true,
+    excludeMatches:rules.excluded.map(site=>"*://*."+site+"/*"), runAt:"document_start",
+    css:["gate.css"], js:["helpers.js","policy.js","text.js","content-script.js"]};
+  if(enabled){
+    if(registrations.length) await chrome.scripting.updateContentScripts([script]);
+    else await chrome.scripting.registerContentScripts([script]);
+  } else if(registrations.length) await chrome.scripting.unregisterContentScripts({ids:["filter"]});
+  const existing=await chrome.declarativeNetRequest.getDynamicRules();
+  const addRules=enabled && rules.blocked.length ? [{id:1,priority:1,action:{type:"redirect",redirect:{extensionPath:"/blocked.html"}},
+    condition:{requestDomains:rules.blocked,...(rules.excluded.length?{excludedRequestDomains:rules.excluded}:{}),resourceTypes:["main_frame"]}}] : [];
+  await chrome.declarativeNetRequest.updateDynamicRules({removeRuleIds:existing.map(rule=>rule.id),addRules});
 }
-
-chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-  if (changeInfo.status !== "complete" || !tab.url || !/^https?:/.test(tab.url)) return;
-  const { enabled } = await chrome.storage.local.get("enabled");
-  if (enabled) await injectIntoTab(tabId);
-});
-
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (!message || message.type !== "setEnabled") return false;
-  (async () => {
-    await chrome.storage.local.set({ enabled: Boolean(message.enabled) });
-    if (message.enabled) {
-      const tabs = await chrome.tabs.query({ url: ["http://*/*", "https://*/*"] });
-      for (const tab of tabs) if (tab.id !== undefined) await injectIntoTab(tab.id);
-    } else {
-      const tabs = await chrome.tabs.query({});
-      for (const tab of tabs) {
-        if (tab.id !== undefined) {
-          try { await chrome.tabs.sendMessage(tab.id, { type: "disableFiltering" }); } catch (_) {}
-        }
-      }
-    }
-    sendResponse({ ok: true });
-  })().catch(error => sendResponse({ ok: false, error: error.message }));
+let queue=Promise.resolve();
+function serialize(fn){ const next=queue.then(fn); queue=next.catch(()=>{}); return next; }
+async function restore(){const {enabled,siteRules}=await chrome.storage.local.get(["enabled","siteRules"]); await configure(!!enabled,siteRules);}
+chrome.runtime.onInstalled.addListener(()=>serialize(restore));
+chrome.runtime.onStartup.addListener(()=>serialize(restore));
+chrome.runtime.onMessage.addListener((message,sender,reply)=>{
+  if(!["setEnabled","saveRules"].includes(message?.type) || sender.url?.startsWith(chrome.runtime.getURL(""))!==true)return false;
+  serialize(async()=>{
+    const current=await chrome.storage.local.get(["enabled","siteRules"]);
+    const enabled=message.type==="setEnabled"?!!message.enabled:!!current.enabled;
+    const input=message.type==="saveRules"?message.input:current.siteRules;
+    await configure(enabled,input);
+    await chrome.storage.local.set({enabled,siteRules:input || {}});
+  }).then(()=>reply({ok:true}),error=>reply({ok:false,error:error.message}));
   return true;
 });

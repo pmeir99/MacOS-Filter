@@ -2,6 +2,7 @@ import Foundation
 
 public enum FilterMode: String, Codable, CaseIterable {
     case entireImage
+    case adaptive
     case allPeople
 }
 
@@ -15,6 +16,7 @@ public struct FilterSettings: Codable, Equatable {
     public var mode: FilterMode
     public var overlayStyle: OverlayStyle
     public var overlayColor: String
+    public var blockThreshold: Double?
     public var opacity: Double
 
     public init(

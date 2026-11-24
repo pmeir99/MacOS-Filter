@@ -1,0 +1,1 @@
+:root:not([data-mf-paused]) img:not([data-mf-reviewed]){visibility:hidden!important}::highlight(mf-phrases){color:transparent!important;background-color:#303238!important;text-shadow:none!important}

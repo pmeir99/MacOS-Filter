@@ -1,24 +1,8 @@
 # MacOS Filter
+Chrome image, text and site filtering for Apple Silicon Macs. The development build includes a pretrained binary OpenNSFW Core ML classifier and uses Apple Vision for person masks. In the adaptive mode a high score covers the entire image. Lower scores use the existing people mask. Adjust the score cutoff in Mac settings. Calibration for personal modesty standards requires a labeled evaluation set.
 
-A local image filter for Chrome on macOS, designed for Apple Silicon Macs with 16 GB unified memory. The product pairs a SwiftUI settings app, a Chrome Manifest V3 extension, and a Swift native-messaging host. Images stay on the Mac.
+The model is obtained at build time from [Core ML After Dark](https://github.com/dcandre/Core-ML-After-Dark/tree/497c388569033f5b970755a4c90a0863e72785c5), checked against its pinned Git blob, compiled, and included inside the signed app. Inference needs no remote service. Target hardware is M4 and later with 16 GB.
 
-## Chosen path
+Open **Website and text rules** in the extension for blocked domains, excluded domains and literal phrases. Enable filtering and reload existing tabs. The extension registers an early image visibility rule on permitted HTTP(S) pages. Images retain their layout box while pending. Site redirects use Chrome declarative network rules. Text covers use CSS highlights within individual DOM text nodes. These are visual covers, not removal from the page source.
 
-The extension discovers page images and preserves their layout while filtering. The native host runs Apple Vision/Core ML providers and returns decisions and compact masks. The app owns settings and connects Chrome to the host. This keeps image access in the browser and inference in native code without a remote service or local network server.
-
-## Current working foundation
-
-- Entire-image cover and cover-all-detected-people modes.
-- Solid or blur overlay, with color and opacity settings.
-- Apple Vision person segmentation; no separately downloaded model files are currently bundled.
-- A local browser-to-host connection and race-to-first-compatible-macOS-runner build workflow.
-
-The current Vision provider does not classify nudity, skin, clothing, apparent gender, or modesty levels. Those controls stay hidden until a model is integrated and evaluated. OpenNSFW2, NudeNet, MediaPipe, YOLO, and SAM options are compared in the guide; they are not all installed or active.
-
-## Guides
-
-- [Product and engineering guide](docs/PRODUCT-GUIDE.md): product requirements, interception decision, provider comparison, categories, policy rules, rendering, privacy, and roadmap.
-- [Model options](docs/MODEL-OPTIONS.md): model-specific comparison and capability limits.
-- [Build and install](docs/BUILDING.md): prerequisites, setup, and Gatekeeper troubleshooting.
-
-The current extension filters supported HTML image elements. CSS backgrounds, canvas, video, and unsupported browser surfaces are not yet covered. Chrome has no general API that pauses page rendering until model inference finishes.
+Coverage is experimental. Browser-internal pages, arbitrary CSS/canvas, and all rendered frames of animated media are outside the verified surface. Per-person presentation, precise skin, product categories, and seven clothing levels need additional evaluated providers. See [design](docs/PRODUCT-GUIDE.md) and [installation](docs/BUILDING.md).

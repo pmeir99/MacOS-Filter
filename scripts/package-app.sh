@@ -2,12 +2,13 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-swift build -c release
+swift build -c release --arch arm64
+BIN="$(swift build -c release --arch arm64 --show-bin-path)"
 APP="$ROOT/dist/MacOS Filter.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
-cp .build/release/MacOSFilter "$APP/Contents/MacOS/MacOSFilter"
-cp .build/release/FilterHost "$APP/Contents/MacOS/FilterHost"
+cp "$BIN"/MacOSFilter "$APP/Contents/MacOS/MacOSFilter"
+cp "$BIN"/FilterHost "$APP/Contents/MacOS/FilterHost"
 chmod 755 "$APP/Contents/MacOS/MacOSFilter" "$APP/Contents/MacOS/FilterHost"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -26,6 +27,13 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </dict>
 </plist>
 PLIST
+mkdir -p "$APP/Contents/Resources"
+MODEL_DIR="$(mktemp -d)"
+trap 'rm -rf "$MODEL_DIR"' EXIT
+curl --fail --location --retry 3 --silent --show-error 'https://raw.githubusercontent.com/dcandre/Core-ML-After-Dark/497c388569033f5b970755a4c90a0863e72785c5/Core%20ML%20After%20Dark/PhotoSelector/Nudity.mlmodel' -o "$MODEL_DIR/Nudity.mlmodel"
+test "$(git hash-object "$MODEL_DIR/Nudity.mlmodel")" = fd69d0c03ef5458b4543b37630c48f60111562a9
+xcrun coremlcompiler compile "$MODEL_DIR/Nudity.mlmodel" "$APP/Contents/Resources"
+test -d "$APP/Contents/Resources/Nudity.mlmodelc"
 plutil -lint "$APP/Contents/Info.plist"
 # Ad-hoc signatures detect bundle corruption but do not notarize the app.
 codesign --force --sign - --timestamp=none "$APP/Contents/MacOS/FilterHost"

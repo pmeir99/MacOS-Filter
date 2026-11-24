@@ -7,6 +7,7 @@
     if (state.active) return;
     state.active = true;
 
+    let stopped = false;
     const originalVisibility = new WeakMap();
     const currentURL = new WeakMap();
     const overlays = new WeakMap();
@@ -14,6 +15,7 @@
     let observer = null;
 
     function hideImage(image) {
+      image.removeAttribute('data-mf-reviewed');
       if (!originalVisibility.has(image)) {
         originalVisibility.set(image, {
           value: image.style.getPropertyValue("visibility"),
@@ -24,6 +26,7 @@
     }
 
     function restoreImage(image) {
+      image.setAttribute('data-mf-reviewed','');
       const original = originalVisibility.get(image);
       if (original) {
         if (original.value) image.style.setProperty("visibility", original.value, original.priority);
@@ -102,6 +105,7 @@
     }
 
     function coverOnFailure(image, errorMessage) {
+      if (stopped) return;
       placeOverlay(image, {
         ok: false,
         coverWholeImage: true,
@@ -112,7 +116,7 @@
     }
 
     async function processImage(image) {
-      if (!(image instanceof HTMLImageElement) || !image.isConnected) return;
+      if (stopped || !(image instanceof HTMLImageElement) || !image.isConnected) return;
       const url = image.currentSrc || image.src;
       if (!url || currentURL.get(image) === url) return;
       currentURL.set(image, url);
@@ -126,7 +130,7 @@
 
       try {
         const result = await chrome.runtime.sendMessage({ type: "filterImage", url });
-        if (!image.isConnected || currentURL.get(image) !== url) return;
+        if (stopped || !image.isConnected || currentURL.get(image) !== url) return;
         if (result && result.ok === true && result.settings && result.settings.enabled === false) {
           removeOverlay(image);
           delete image.dataset.macosFilterStatus;
@@ -147,7 +151,7 @@
         }
         restoreImage(image);
       } catch (error) {
-        if (image.isConnected && currentURL.get(image) === url) {
+        if (!stopped && image.isConnected && currentURL.get(image) === url) {
           coverOnFailure(image, error && error.message);
         }
       }
@@ -220,7 +224,9 @@
     addEventListener("resize", updateAll, { passive: true });
 
     state.stop = () => {
+      stopped = true;
       observer.disconnect();
+      document.querySelectorAll('img').forEach(restoreImage);
       for (const image of watched) {
         removeOverlay(image);
         restoreImage(image);
@@ -235,6 +241,7 @@
   }
 
   function syncEnabled(enabled) {
+    document.documentElement?.toggleAttribute("data-mf-paused", !enabled);
     if (enabled) startFiltering();
     else if (state.stop) state.stop();
   }

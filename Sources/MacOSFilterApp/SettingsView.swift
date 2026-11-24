@@ -22,8 +22,14 @@ struct SettingsView: View {
             Form {
                 Toggle("Filtering enabled", isOn: $settings.enabled)
                 Picker("What to cover", selection: $settings.mode) {
+                    Text("Block high NSFW scores, otherwise cover people").tag(FilterMode.adaptive)
                     Text("Entire image").tag(FilterMode.entireImage)
                     Text("All detected people").tag(FilterMode.allPeople)
+                }
+                if settings.mode == .adaptive {
+                    Slider("Whole-image cutoff", value: Binding(get: { settings.blockThreshold ?? 0.7 },
+                        set: { settings.blockThreshold = $0 }), in: 0.1...0.95, step: 0.05)
+                    Text("Block at score " + String(format: "%.2f", settings.blockThreshold ?? 0.7))
                 }
                 Picker("Overlay", selection: $settings.overlayStyle) {
                     Text("Solid color").tag(OverlayStyle.solid)
