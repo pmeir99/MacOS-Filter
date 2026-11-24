@@ -180,7 +180,16 @@
         coverWholeImage: true,
         settings: { overlayColor: "#000000", overlayStyle: "solid", opacity: 1 }
       });
-      if (errorMessage) image.dataset.macosFilterStatus = "blocked-local-filter-error";
+      image.dataset.macosFilterStatus = "blocked-local-filter-error";
+      const knownReasons = {
+        "Failed to fetch":"thumbnail-fetch-failed",
+        "Google thumbnail unavailable.":"thumbnail-unavailable",
+        "Google thumbnail exceeds the local budget.":"thumbnail-too-large",
+        "This thumbnail is outside the permitted Google Search source.":"unsupported-thumbnail",
+        "Person detection unavailable.":"detector-unavailable",
+        "Image exceeds local capture budget.":"capture-size-limit"
+      };
+      image.dataset.macosFilterReason = knownReasons[errorMessage] || "local-analysis-error";
       restoreImage(image);
     }
 
@@ -191,6 +200,7 @@
       const attempt = Symbol();
       attempts.set(image,attempt);
       currentURL.set(image, url);
+      delete image.dataset.macosFilterReason;
       hideImage(image);
       removeOverlay(image);
 
@@ -402,7 +412,7 @@
       observer.disconnect();
       sizes.disconnect();
       proximity.disconnect(); pending.clear(); nearby.clear();
-      document.querySelectorAll('img').forEach(image => { restoreImage(image); delete image.dataset.macosFilterStatus; });
+      document.querySelectorAll('img').forEach(image => { restoreImage(image); delete image.dataset.macosFilterStatus; delete image.dataset.macosFilterReason; });
       for (const image of watched) {
         removeOverlay(image);
         restoreImage(image);

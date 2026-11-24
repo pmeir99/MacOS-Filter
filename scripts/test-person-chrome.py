@@ -1,5 +1,6 @@
 """Run the packaged extension against its real Mac host in a disposable Chromium profile."""
 import base64
+import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
 import json
@@ -67,6 +68,10 @@ with tempfile.TemporaryDirectory() as temp, sync_playwright() as pw:
     cert, key = root/"fixture.crt", root/"fixture.key"
     subprocess.run(["openssl","req","-x509","-newkey","rsa:2048","-nodes","-subj","/CN=www.google.com",
                     "-days","1","-keyout",str(key),"-out",str(cert)],check=True,stderr=subprocess.DEVNULL)
+    # Trust only the generated fixture key, including requests from the MV3 worker.
+    public_key=subprocess.check_output(["openssl","x509","-in",str(cert),"-pubkey","-noout"])
+    der=subprocess.check_output(["openssl","pkey","-pubin","-outform","DER"],input=public_key)
+    spki=base64.b64encode(hashlib.sha256(der).digest()).decode()
     tls=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     tls.load_cert_chain(cert,key)
     server.socket=tls.wrap_socket(server.socket,server_side=True)
@@ -78,9 +83,9 @@ with tempfile.TemporaryDirectory() as temp, sync_playwright() as pw:
             registration.parent.mkdir(parents=True,exist_ok=True)
             registration.write_text(json.dumps(host))
         port=server.server_port
-        ctx=pw.chromium.launch_persistent_context(str(profile),channel="chromium",ignore_https_errors=True,
+        ctx=pw.chromium.launch_persistent_context(str(profile),channel="chromium",
             args=[f"--disable-extensions-except={extension}",f"--load-extension={extension}",
-                  "--no-proxy-server","--disable-quic",
+                  "--no-proxy-server","--disable-quic",f"--ignore-certificate-errors-spki-list={spki}",
                   f"--host-resolver-rules=MAP www.google.com 127.0.0.1:{port},MAP encrypted-tbn0.gstatic.com 127.0.0.1:{port}"])
         options=ctx.new_page()
         options.goto(f"chrome-extension://{extension_id}/options.html")
@@ -101,8 +106,20 @@ with tempfile.TemporaryDirectory() as temp, sync_playwright() as pw:
             page.wait_for_selector('#portrait[data-macos-filter-status="person-detected"]',timeout=45000)
             page.wait_for_selector('#coffee[data-macos-filter-status="no-person-detected"]',timeout=45000)
         except Exception:
-            print("Image decisions:",page.locator("img").evaluate_all("imgs=>imgs.map(i=>[i.id,i.dataset.macosFilterStatus])"),flush=True)
+            print("Image decisions:",page.locator("img").evaluate_all("imgs=>imgs.map(i=>[i.id,i.dataset.macosFilterStatus,i.dataset.macosFilterReason])"),flush=True)
             print("Thumbnail requests:",requests,flush=True)
+            worker=ctx.service_workers[0]
+            diagnostics=worker.evaluate("""async ([page,url]) => {
+              const result={mode:current?.mode, eligible:GoogleThumbnails.eligible(url,page)};
+              try { const imageData=await GoogleThumbnails.read(url);
+                result.bytes=imageData.length;
+                const {siteRules,...analysis}=current;
+                const answer=await scheduledAnalysis(imageData,{mode:"personBlur",analysis});
+                result.native={ok:answer.ok,personDetected:answer.personDetected,error:answer.error};
+              } catch(e){result.error=e.message;}
+              return result;
+            }""",[page.url,thumbnail("portrait")])
+            print("Worker diagnostics:",diagnostics,flush=True)
             print("Helper status:",options.locator("#helperStatus").inner_text(),flush=True)
             raise
         after=capture()
