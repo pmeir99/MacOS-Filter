@@ -51,45 +51,19 @@ function nativeRequest(action, imageData) {
   });
 }
 
-function bytesToBase64(bytes) {
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let index = 0; index < bytes.length; index += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
-  }
-  return btoa(binary);
-}
-
-async function analyzeImage(url) {
-  if (!MacOSFilterHelpers.isSupportedImageURL(url)) {
-    throw new Error("This image URL is not supported.");
-  }
-  const response = await fetch(url, {
-    credentials: "omit",
-    cache: "force-cache",
-    referrerPolicy: "no-referrer"
-  });
-  if (!response.ok) throw new Error("The image could not be read.");
-  const blob = await response.blob();
-  if (!blob.type.startsWith("image/") || blob.size > MAX_IMAGE_BYTES) {
-    throw new Error("The image type or file size is outside the supported limits.");
-  }
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  return nativeRequest("segment", bytesToBase64(bytes));
-}
-
 let active = 0;
 const waiting = [];
-async function scheduledAnalysis(url) {
+async function scheduledAnalysis(imageData) {
+  if (typeof imageData !== "string" || !imageData.length || imageData.length > 4 * Math.ceil(MAX_IMAGE_BYTES/3)) throw Error("Invalid local image payload.");
   if (active >= 2) {
     if (waiting.length >= 64) throw Error("Local image queue is full.");
     await new Promise(resolve => waiting.push(resolve));
   } else active++;
-  try { return await analyzeImage(url); }
+  try { return await nativeRequest('segment',imageData); }
   finally { const next=waiting.shift(); if(next) next(); else active--; }
 }
 
-async function filterImage(url, description) {
+async function filterImage(imageData, description) {
   const settingsResponse = await nativeRequest("getSettings");
   if (!settingsResponse.ok || !settingsResponse.settings) {
     throw new Error("The Mac app did not return filtering settings.");
@@ -102,13 +76,14 @@ async function filterImage(url, description) {
   if (settings.mode === "entireImage") {
     return { ok: true, coverWholeImage: true, settings };
   }
-  const result = await scheduledAnalysis(url);
+  if (imageData === undefined) return {ok:true,needsPixels:true};
+  const result = await scheduledAnalysis(imageData);
   return { ...result, settings: result.coverWholeImage || !result.ok ? {...settings, opacity:1, overlayStyle:'solid'} : settings };
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || message.type !== "filterImage") return false;
-  filterImage(message.url, message.description)
+  filterImage(message.imageData, message.description)
     .then(sendResponse)
     .catch(error => sendResponse({ ok: false, coverWholeImage: true, error: error.message }));
   return true;
@@ -120,7 +95,7 @@ async function configure(enabled, input) {
   const registrations = await chrome.scripting.getRegisteredContentScripts({ids:["filter"]});
   const script = {id:"filter", matches:["http://*/*","https://*/*"], allFrames:true,
     excludeMatches:rules.excluded.map(site=>"*://*."+site+"/*"), runAt:"document_start",
-    css:["gate.css"], js:["helpers.js","policy.js","text.js","content-script.js"]};
+    css:input?.presentation==="loading"?["gate.css","loading.css"]:["gate.css"], js:["helpers.js","policy.js","text.js","content-script.js"]};
   if(enabled){
     if(registrations.length) await chrome.scripting.updateContentScripts([script]);
     else await chrome.scripting.registerContentScripts([script]);

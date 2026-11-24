@@ -52,6 +52,10 @@
         if (layer.original) image.style.setProperty("filter", layer.original, layer.priority);
         else image.style.removeProperty("filter");
       }
+      if (layer.frozen && image.style.getPropertyValue("content") === layer.frozen) {
+        if (layer.previousContent) image.style.setProperty("content",layer.previousContent,layer.contentPriority);
+        else image.style.removeProperty("content");
+      }
       sizes.unobserve(image);
       layer.svg.remove();
       overlays.delete(image);
@@ -93,7 +97,13 @@
       const original=image.style.getPropertyValue("filter"), priority=image.style.getPropertyPriority("filter");
       const previous=getComputedStyle(image).filter;
       image.style.setProperty("filter","url(\"#"+id+"\")"+(previous==="none"?"":" "+previous),"important");
-      overlays.set(image,{svg:resource,mask,original,priority,applied:image.style.getPropertyValue("filter")});
+      const previousContent=image.style.getPropertyValue("content"), contentPriority=image.style.getPropertyPriority("content");
+      let frozen;
+      if (partial && result.snapshot) {
+        image.style.setProperty("content",'url("'+result.snapshot+'")',"important");
+        frozen=image.style.getPropertyValue("content");
+      }
+      overlays.set(image,{frozen,previousContent,contentPriority,svg:resource,mask,original,priority,applied:image.style.getPropertyValue("filter")});
       image.setAttribute("data-macos-filter-overlay","true");
       watched.add(image);
       sizes.observe(image);
@@ -119,13 +129,27 @@
       hideImage(image);
       removeOverlay(image);
 
-      if (!MacOSFilterHelpers.isSupportedImageURL(url)) {
-        coverOnFailure(image, "Unsupported image source.");
-        return;
-      }
-
       try {
-        const result = await chrome.runtime.sendMessage({ type: "filterImage", url, description:[image.alt,image.title,image.getAttribute("aria-label")].filter(Boolean).join(" ").slice(0,4096) });
+        const message = {type:"filterImage", description:[image.alt,image.title,image.getAttribute("aria-label")].filter(Boolean).join(" ").slice(0,4096)};
+        let result = await chrome.runtime.sendMessage(message);
+        if (result?.needsPixels) {
+          if (stopped || !image.isConnected || (image.currentSrc || image.src) !== url) return;
+          let snapshot;
+          if (/^data:image\/(png|jpeg|gif|webp|avif);base64,/i.test(url)) {
+            message.imageData=url.slice(url.indexOf(",")+1);
+          } else {
+            const width=image.naturalWidth, height=image.naturalHeight;
+            if (!width || !height || width*height>4000000) throw Error("Image exceeds local capture budget.");
+            const canvas=document.createElement("canvas");
+            canvas.width=width; canvas.height=height;
+            canvas.getContext("2d").drawImage(image,0,0,width,height);
+            snapshot=canvas.toDataURL("image/png");
+            message.imageData=snapshot.slice(snapshot.indexOf(",")+1);
+          }
+          if (message.imageData.length>11184812) throw Error("Image exceeds local transport budget.");
+          result=await chrome.runtime.sendMessage(message);
+          if (result) result.snapshot=snapshot;
+        }
         if (stopped || !image.isConnected || currentURL.get(image) !== url) return;
         if (result && result.ok === true && result.settings && result.settings.enabled === false) {
           removeOverlay(image);
@@ -199,6 +223,20 @@
       attributeFilter: ["src", "srcset","alt","title","aria-label"]
     });
     scan(document);
+    // Initial on-screen images gate the page. Later images keep individual placeholders.
+    let releaseTimer;
+    function checkPage() {
+      if (stopped || !document.documentElement || document.documentElement.hasAttribute("data-mf-page-ready") || document.readyState === "loading") return;
+      const pending = Array.from(document.images).some(img => {
+        const box=img.getBoundingClientRect();
+        return box.width && box.height && box.bottom>0 && box.right>0 && box.top<innerHeight && box.left<innerWidth && !img.hasAttribute("data-mf-reviewed");
+      });
+      if (!pending) document.documentElement.setAttribute("data-mf-page-ready","");
+      else releaseTimer=setTimeout(checkPage,80);
+    }
+    if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",checkPage,{once:true});
+    else checkPage();
+    const deadline=setTimeout(()=>document.documentElement?.setAttribute("data-mf-page-ready",""),8000);
 
     const updateAll = () => {
       for (const image of watched) {
@@ -221,6 +259,8 @@
 
     state.stop = () => {
       stopped = true;
+      clearTimeout(deadline); clearTimeout(releaseTimer);
+      document.documentElement?.setAttribute("data-mf-page-ready","");
       observer.disconnect();
       sizes.disconnect();
       document.querySelectorAll('img').forEach(restoreImage);

@@ -1,0 +1,2 @@
+html:not([data-mf-page-ready]):not([data-mf-paused]) body{opacity:0!important;pointer-events:none!important}
+html:not([data-mf-page-ready]):not([data-mf-paused])::after{content:"Checking images on this Mac…"!important;position:fixed!important;inset:0!important;z-index:2147483647!important;display:grid!important;place-items:center!important;background:Canvas!important;color:CanvasText!important;font:16px system-ui!important}

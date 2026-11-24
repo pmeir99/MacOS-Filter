@@ -3,7 +3,7 @@ import FilterCore
 
 struct SettingsView: View {
     @State private var settings = SettingsStore.load()
-    @State private var extensionID = ""
+    @AppStorage("chromeExtensionID") private var extensionID = ""
     @State private var status = "Set up the Chrome extension to connect this Mac."
     @State private var statusIsError = false
 
@@ -77,6 +77,11 @@ struct SettingsView: View {
                 .textSelection(.enabled)
         }
         .padding(24)
+        .onAppear {
+            if extensionID.isEmpty, let existing = NativeHostInstaller.registeredID() {
+                extensionID = existing
+            }
+        }
     }
 
     private func saveSettings() {

@@ -1,5 +1,5 @@
-const fields = [...document.querySelectorAll("textarea")];
-chrome.storage.local.get("siteRules").then(({siteRules = {}}) => fields.forEach(f => f.value = siteRules[f.id] || ""));
+const fields = [...document.querySelectorAll("textarea,select")];
+chrome.storage.local.get("siteRules").then(({siteRules = {}}) => fields.forEach(f => f.value = siteRules[f.id] || (f.id === "presentation" ? "placeholders" : "")));
 document.querySelector("form").onsubmit = async event => {
   event.preventDefault();
   const input = Object.fromEntries(fields.map(f => [f.id,f.value]));

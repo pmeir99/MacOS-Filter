@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MacOS Filter",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "On-device image filtering through the MacOS Filter app.",
   "minimum_chrome_version": "116",
   "permissions": [
@@ -35,5 +35,8 @@
         "https://*/*"
       ]
     }
-  ]
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src 'none'"
+  }
 }

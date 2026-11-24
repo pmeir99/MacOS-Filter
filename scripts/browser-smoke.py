@@ -20,12 +20,20 @@ button{position:absolute;top:6px;right:6px;background:white;color:black;border:0
 output = Path("layout-comparison")
 output.mkdir(exist_ok=True)
 
+image_requests = []
 class Fixture(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
+        if self.path == "/local-photo.png":
+            image_requests.append(self.path)
+            self.send_header("Content-Type","image/png")
+            self.send_header("Cache-Control","no-store")
+            self.end_headers()
+            self.wfile.write(encoded.getvalue())
+            return
         self.send_header("Content-Type", "text/html")
         self.end_headers()
-        self.wfile.write(fixture.encode())
+        self.wfile.write((fixture.replace(photo_url,"/local-photo.png") if self.path=="/local-test" else fixture).encode())
 
 server = ThreadingHTTPServer(("127.0.0.1", 0), Fixture)
 threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -43,6 +51,7 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     sw_file.write_text(sw_file.read_text().replace("function nativeRequest(action, imageData) {",
         """async function nativeRequest(action, imageData) {
           const {fixtureMask}=await chrome.storage.local.get('fixtureMask');
+          if (fixtureMask && action === 'segment') await new Promise(resolve=>setTimeout(resolve,700));
           if (fixtureMask) return action === 'getSettings'
             ? {ok:true,settings:{enabled:true,mode:'allPeople',opacity:1,overlayColor:'#000000',overlayStyle:'solid'}}
             : {ok:true,maskData:fixtureMask};
@@ -100,6 +109,19 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     assert partial.getpixel((65,62)) == (0,0,0)
     assert partial.getpixel((137,75)) == a.getpixel((137,75))
     assert ImageChops.difference(a,partial).crop(bounds).getbbox() is None
+    page.locator("#presentation").select_option("loading")
+    page.locator("button").click()
+    page.wait_for_function("chrome.storage.local.get('siteRules').then(v=>v.siteRules.presentation==='loading')")
+    sample.goto(url+"/local-test",wait_until="domcontentloaded")
+    sample.wait_for_function("getComputedStyle(document.body).opacity==='0'")
+    sample.wait_for_function("document.documentElement.hasAttribute('data-mf-page-ready')")
+    assert sample.evaluate("getComputedStyle(document.body).opacity") == "1"
+    _, captured=capture("local-capture")
+    assert captured.getpixel((65,62))==(0,0,0)
+    assert captured.getpixel((137,75))==a.getpixel((137,75))
+    assert len(image_requests)==1, image_requests
+    page.reload()
+    page.wait_for_function("document.querySelector('#presentation').value==='loading'")
     page.evaluate("chrome.storage.local.remove('fixtureMask')")
 
     enable(False)
