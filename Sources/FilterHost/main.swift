@@ -28,6 +28,33 @@ enum FilterHostMain {
         return cache
     }()
 
+    private static let personCache: NSCache<NSData, NSNumber> = {
+        let cache = NSCache<NSData, NSNumber>()
+        cache.countLimit = 512
+        return cache
+    }()
+
+    private static func personPresent(in data: Data) throws -> Bool {
+        let digest = Data(SHA256.hash(data: data)) as NSData
+        if let cached = personCache.object(forKey: digest) { return cached.boolValue }
+        _ = try ImageInputValidator.validate(data)
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              CGImageSourceGetCount(source) == 1,
+              let upright = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: 1024
+              ] as CFDictionary) else { throw NativeProtocolError.invalidFrame }
+        let bodies = VNDetectHumanRectanglesRequest()
+        bodies.upperBodyOnly = false
+        let faces = VNDetectFaceRectanglesRequest()
+        try VNImageRequestHandler(cgImage: upright).perform([bodies, faces])
+        guard let people = bodies.results, let portraits = faces.results else { throw NativeProtocolError.invalidFrame }
+        let found = !people.isEmpty || !portraits.isEmpty
+        personCache.setObject(NSNumber(value: found), forKey: digest)
+        return found
+    }
+
     private static let outputLock = NSLock()
     private static var watcher: DispatchSourceFileSystemObject?
 
@@ -187,6 +214,11 @@ enum FilterHostMain {
                 )
             }
             do {
+                if settings.mode == .personBlur {
+                    var response = NativeResponse(requestID: request.requestID, ok: true)
+                    response.personDetected = try personPresent(in: imageData)
+                    return response
+                }
                 let digest = Data(SHA256.hash(data: imageData)).base64EncodedString()
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = .sortedKeys

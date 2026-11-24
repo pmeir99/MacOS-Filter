@@ -1,4 +1,4 @@
-importScripts("helpers.js","policy.js","settings.js");
+importScripts("helpers.js","policy.js","settings.js","google-thumbnails.js");
 
 const HOST_NAME = "com.pmeir99.macos_filter";
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -60,19 +60,24 @@ function nativeRequest(action, imageData, profile) {
 let active = 0;
 const waiting = [];
 let queuedBytes = 0;
-async function scheduledAnalysis(imageData, profile) {
-  if (typeof imageData !== "string" || !imageData.length || imageData.length > 4 * Math.ceil(MAX_IMAGE_BYTES/3)) throw Error("Invalid local image payload.");
+async function scheduledAnalysis(imageData, profile, thumbnail) {
+  const cost = thumbnail ? 1400000 : imageData?.length;
+  if (!thumbnail && (typeof imageData !== "string" || !imageData.length || imageData.length > 4 * Math.ceil(MAX_IMAGE_BYTES/3))) throw Error("Invalid local image payload.");
   if (active >= 2) {
-    if (waiting.length >= 64 || queuedBytes + imageData.length > 32*1024*1024) return {retry:true};
-    queuedBytes += imageData.length;
+    if (waiting.length >= 64 || queuedBytes + cost > 32*1024*1024) return {retry:true};
+    queuedBytes += cost;
     await new Promise(resolve => waiting.push(resolve));
-    queuedBytes -= imageData.length;
+    queuedBytes -= cost;
   } else active++;
-  try { return await nativeRequest('segmentWithPolicy',imageData,profile); }
+  try {
+    if (thumbnail) imageData = await GoogleThumbnails.read(thumbnail);
+    return await nativeRequest('segmentWithPolicy',imageData,profile);
+  }
   finally { const next=waiting.shift(); if(next) next(); else active--; }
 }
 
-async function filterImage(imageData, description, host) {
+async function filterImage(imageData, description, page, thumbnail) {
+  const host = new URL(page).hostname;
   if (!current) await initialize();
   if (!current) throw Error("The local helper is unavailable.");
   const settings = MacOSFilterHelpers.normalizeSettings(current);
@@ -81,19 +86,26 @@ async function filterImage(imageData, description, host) {
   const profile = rules.profiles.find(rule => FilterPolicy.excludes(host,[rule.site]));
   if (profile) settings.mode = profile.mode;
   const labels = FilterPolicy.pattern(rules.products);
-  if (labels && labels.test(description || "")) return {ok:true,coverWholeImage:true,settings:{...settings,overlayColor:"#000000",opacity:1,overlayStyle:"solid"}};
+  if (settings.mode !== "personBlur" && labels && labels.test(description || "")) return {ok:true,coverWholeImage:true,settings:{...settings,overlayColor:"#000000",opacity:1,overlayStyle:"solid"}};
   if (settings.mode === "entireImage") {
     return { ok: true, coverWholeImage: true, settings };
   }
-  if (imageData === undefined) return {ok:true,needsPixels:true};
+  if (thumbnail && (settings.mode !== "personBlur" || !GoogleThumbnails.eligible(thumbnail,page)))
+    throw Error("This thumbnail is outside the permitted Google Search source.");
+  if (imageData === undefined && !thumbnail) return {ok:true,needsPixels:true,personMode:settings.mode==="personBlur"};
   const {siteRules, ...analysis} = current;
-  const result = await scheduledAnalysis(imageData, {...profile, analysis});
+  const result = await scheduledAnalysis(imageData, {...profile, analysis}, thumbnail);
+  if (settings.mode === "personBlur" && !result.retry) {
+    if (!result.ok || typeof result.personDetected !== "boolean") throw Error("Person detection unavailable.");
+    return {ok:true,personDetected:result.personDetected,coverWholeImage:result.personDetected,
+      settings:{...settings,overlayStyle:"blur"}};
+  }
   return { ...result, settings: result.coverWholeImage || !result.ok || !result.maskData ? {...settings, overlayColor:"#000000", opacity:1, overlayStyle:'solid'} : settings };
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || message.type !== "filterImage") return false;
-  filterImage(message.imageData, message.description, new URL(sender.url || sender.tab?.url).hostname)
+  filterImage(message.imageData, message.description, sender.url || sender.tab?.url, message.thumbnail)
     .then(sendResponse)
     .catch(error => sendResponse({ ok: false, coverWholeImage: true, error: error.message }));
   return true;

@@ -121,4 +121,8 @@ if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
   python3 -m venv "$MODEL_DIR/qa"
   "$MODEL_DIR/qa/bin/pip" -q install Pillow
   "$MODEL_DIR/qa/bin/python" scripts/native-portrait.py "$HOST" "$MODEL_DIR/portrait.png"
+  curl -fsSL --retry 3 'https://raw.githubusercontent.com/scikit-image/scikit-image/e8a42ba85aaf5fd9322ef9ca51bc21063b22fcae/skimage/data/coffee.png' -o "$MODEL_DIR/coffee.png"
+  "$MODEL_DIR/qa/bin/pip" -q install playwright==1.55.0
+  "$MODEL_DIR/qa/bin/playwright" install chromium
+  "$MODEL_DIR/qa/bin/python" scripts/test-person-chrome.py "$SHIPPED" "$MODEL_DIR/portrait.png" "$MODEL_DIR/coffee.png"
 fi

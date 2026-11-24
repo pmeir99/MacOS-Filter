@@ -40,7 +40,7 @@
     }
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'none'; connect-src 'none'"
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src https://encrypted-tbn0.gstatic.com https://encrypted-tbn1.gstatic.com https://encrypted-tbn2.gstatic.com https://encrypted-tbn3.gstatic.com"
   },
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvp27X9kh5B2QrwDF9dNTwcC3ke8yhwM6/EnWz8m0Cj3Ly/tDO5SurHGYl6HvPTmpxLTOTFueyekAdcIaSJGwBydQZYwY9JijlPdISIzFFJgt/IJCjCwAqULKogCWce1hs6/LmFkXVxKErzXFLdgJHIBxgj96iD9c8w5Y2MEtSbz9DGsT21JNy+QMVsEjB4oEVzfEo5zWGavoBPQiZTBIotpqeKWQX+s64IXE12Nu+Wo0uWQgPne1B1xTZkCsVlQK2EFISnqX1Wy/Ouro6lARKZYKtpBlEJOqWshwG8ueFWoICfA1my4O7QeiX8ekyP6HUZs39tDBalRh8FNrCvhTCQIDAQAB",
   "icons": {

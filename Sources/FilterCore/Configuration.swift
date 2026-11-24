@@ -1,6 +1,7 @@
 import Foundation
 
 public enum FilterMode: String, Codable, CaseIterable {
+    case personBlur
     case entireImage
     case skin
     case policy

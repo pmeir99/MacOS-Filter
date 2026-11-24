@@ -1,6 +1,6 @@
 // Run in the worker and options page. Keys match the settings imported from 0.4.33.
 globalThis.FilterSettings = (() => {
-  const modes = ["allPeople","entireImage","adaptive","faces","skin","policy"];
+  const modes = ["allPeople","personBlur","entireImage","adaptive","faces","skin","policy"];
   const defaults = {
     enabled:true, mode:"allPeople", overlayStyle:"solid", overlayColor:"#000000", opacity:1,
     blurRadius:16, blockThreshold:0.7, fullLevel:2, maskLevel:5, appearance:"all",

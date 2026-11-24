@@ -5,7 +5,7 @@
     const opacity = Number(settings && settings.opacity);
     return {
       enabled: Boolean(settings && settings.enabled),
-      mode: settings && ["entireImage","faces","adaptive","skin","policy","allPeople"].includes(settings.mode) ? settings.mode : "allPeople",
+      mode: settings && ["personBlur","entireImage","faces","adaptive","skin","policy","allPeople"].includes(settings.mode) ? settings.mode : "allPeople",
       overlayStyle: settings && settings.overlayStyle === "blur" ? "blur" : "solid",
       ...(Number.isFinite(settings?.blurRadius) ? {blurRadius:Math.min(40,Math.max(4,settings.blurRadius))} : {}),
       overlayColor: validColor(settings && settings.overlayColor) ? settings.overlayColor : "#000000",

@@ -1,5 +1,5 @@
 const $ = id => document.getElementById(id);
-const modeNames = {allPeople:"All detected people",faces:"Faces",entireImage:"Entire image",adaptive:"Adaptive",skin:"Skin mask (experimental)",policy:"Seven levels (experimental)"};
+const modeNames = {personBlur:"Blur images containing people",allPeople:"All detected people",faces:"Faces",entireImage:"Entire image",adaptive:"Adaptive",skin:"Skin mask (experimental)",policy:"Seven levels (experimental)"};
 const levels = ["Explicit activity","Explicit nudity","Swimwear or lingerie","Substantial exposure","Some skin visible","Covered clothing","Long, loose coverage"];
 const levelOptions = Object.fromEntries(levels.map((label,i)=>[i+1,(i+1)+" · "+label]));
 let settings, revision=0;
@@ -51,9 +51,12 @@ function field(section,key,title,type,values) {
   $(section).append(row);
 }
 function styles(){
+  const personMode = settings.mode === "personBlur";
+  $("personHelp").hidden = !personMode;
+  if ($("overlayStyle")) $("overlayStyle").closest("label").hidden = personMode;
   for(const id of ["opacity","overlayColor","blurRadius"]) {
     const input=$(id);
-    if(input) input.closest("label").hidden=(id==="blurRadius") !== (settings.overlayStyle==="blur");
+    if(input) input.closest("label").hidden=(id==="blurRadius") !== (personMode || settings.overlayStyle==="blur");
   }
 }
 function profile(row={site:"",mode:"adaptive",cutoff:0.7}) {

@@ -208,10 +208,15 @@
             const canvas=document.createElement("canvas");
             canvas.width=width; canvas.height=height;
             canvas.getContext("2d").drawImage(image,0,0,width,height);
-            snapshot=canvas.toDataURL("image/png");
-            message.imageData=snapshot.slice(snapshot.indexOf(",")+1);
+            try {
+              snapshot=canvas.toDataURL("image/png");
+              message.imageData=snapshot.slice(snapshot.indexOf(",")+1);
+            } catch (error) {
+              if (error.name !== "SecurityError" || !result.personMode) throw error;
+              message.thumbnail=url;
+            }
           }
-          if (message.imageData.length>11184812) throw Error("Image exceeds local transport budget.");
+          if (message.imageData?.length>11184812) throw Error("Image exceeds local transport budget.");
           result=await chrome.runtime.sendMessage(message);
           if (result) result.snapshot=snapshot;
         }
@@ -239,9 +244,15 @@
           return;
         }
         result.settings = MacOSFilterHelpers.normalizeSettings(result.settings);
+        if (result.personDetected === false) {
+          removeOverlay(image);
+          image.dataset.macosFilterStatus = "no-person-detected";
+          restoreImage(image);
+          return;
+        }
         if (MacOSFilterHelpers.shouldCoverWholeImage(result)) {
           placeOverlay(image, { ...result, coverWholeImage: true });
-          if (result.coverWholeImage) image.dataset.macosFilterStatus = "covered-by-fallback";
+          if (result.coverWholeImage) image.dataset.macosFilterStatus = result.personDetected ? "person-detected" : "covered-by-fallback";
         } else {
           // Keep the original gated if the local mask is malformed or Chrome cannot decode it.
           const mask = new Image();
@@ -391,7 +402,7 @@
       observer.disconnect();
       sizes.disconnect();
       proximity.disconnect(); pending.clear(); nearby.clear();
-      document.querySelectorAll('img').forEach(restoreImage);
+      document.querySelectorAll('img').forEach(image => { restoreImage(image); delete image.dataset.macosFilterStatus; });
       for (const image of watched) {
         removeOverlay(image);
         restoreImage(image);

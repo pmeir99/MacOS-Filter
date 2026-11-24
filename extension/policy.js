@@ -10,7 +10,7 @@ globalThis.FilterPolicy = (() => {
   function parse(input = {}) {
     const profiles = (input.profiles || []).map(profile => {
       const hosts = domains(profile.site);
-      const modes = ["adaptive","skin","policy","allPeople","faces","entireImage"];
+      const modes = ["adaptive","skin","policy","allPeople","faces","personBlur","entireImage"];
       if (hosts.length !== 1 || !modes.includes(profile.mode)) throw Error("Choose a domain and an image mode.");
       const cutoff = Number(profile.cutoff);
       if (!Number.isFinite(cutoff) || cutoff < 0.1 || cutoff > 0.95) throw Error("Choose a cutoff between 0.10 and 0.95.");
