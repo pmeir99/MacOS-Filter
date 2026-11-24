@@ -1,0 +1,9 @@
+{
+  "name": "macos-filter-extension",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "check": "node --check helpers.js && node --check service-worker.js && node --check content-script.js && node --check popup.js"
+  }
+}

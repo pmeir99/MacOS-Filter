@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "MacOS Filter",
+  "version": "0.1.0",
+  "description": "On-device image filtering through the MacOS Filter app.",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "activeTab",
+    "nativeMessaging",
+    "scripting",
+    "storage"
+  ],
+  "optional_host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "service-worker.js"
+  },
+  "action": {
+    "default_title": "MacOS Filter",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["helpers.js", "content-script.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ]
+}
