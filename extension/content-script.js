@@ -15,8 +15,7 @@
     const overlays = new WeakMap();
     const watched = new Set();
     const backgrounds = silhouettes ? PeopleBackgrounds.create() : null;
-    const roots = new Set();
-    let observer = null;
+    const roots = new Map();
 
     function hideImage(image) {
       image.removeAttribute('data-mf-reviewed');
@@ -219,11 +218,12 @@
       currentURL.set(image, url);
       delete image.dataset.macosFilterReason;
       hideImage(image);
+      if (silhouettes) image.dataset.macosFilterStatus="scanning";
       removeOverlay(image);
 
       try {
         const message = {type:"filterImage", description:[image.alt,image.title,image.getAttribute("aria-label")].filter(Boolean).join(" ").slice(0,4096)};
-        let result = await chrome.runtime.sendMessage(message);
+        let result = silhouettes ? {needsPixels:true,personMode:true} : await chrome.runtime.sendMessage(message);
         if (result?.needsPixels) {
           if (stopped || attempts.get(image)!==attempt || !image.isConnected || (image.currentSrc || image.src) !== url) return;
           let snapshot;
@@ -237,7 +237,16 @@
             canvas.width=Math.max(1,Math.round(width*scale)); canvas.height=Math.max(1,Math.round(height*scale));
             canvas.getContext("2d").drawImage(image,0,0,canvas.width,canvas.height);
             try {
-              snapshot=canvas.toDataURL("image/png");
+              if (silhouettes) {
+                const blob=await new Promise((resolve,reject)=>canvas.toBlob(
+                  value=>value ? resolve(value) : reject(Error("Local capture failed.")),"image/png"));
+                snapshot=await new Promise((resolve,reject)=>{
+                  const reader=new FileReader();
+                  reader.onload=()=>resolve(reader.result);
+                  reader.onerror=()=>reject(reader.error);
+                  reader.readAsDataURL(blob);
+                });
+              } else snapshot=canvas.toDataURL("image/png");
               message.imageData=snapshot.slice(snapshot.indexOf(",")+1);
             } catch (error) {
               if (error.name !== "SecurityError" || !result.personMode) throw error;
@@ -246,7 +255,7 @@
           }
           if (message.imageData?.length>11184812) throw Error("Image exceeds local transport budget.");
           result=await chrome.runtime.sendMessage(message);
-          if (result) result.snapshot=snapshot;
+          if (result && !silhouettes) result.snapshot=snapshot;
         }
         if (stopped || attempts.get(image)!==attempt || !image.isConnected || (image.currentSrc || image.src)!==url || currentURL.get(image) !== url) return;
         if (result?.retry) {
@@ -374,7 +383,7 @@
       if (node.querySelectorAll) node.querySelectorAll("img").forEach(watchImage);
     }
 
-    observer = new MutationObserver(records => {
+    function mutations(records) {
       for (const record of records) {
         if (record.type === "childList") {
           record.addedNodes.forEach(scan);
@@ -389,7 +398,7 @@
               if (image.isConnected) watchImage(image);
             });
           });
-        } else if (record.type === "attributes" && ["style","class"].includes(record.attributeName)) {
+        } else if (record.type === "attributes" && ["style","class","role"].includes(record.attributeName)) {
           const target=record.target;
           backgrounds?.inspect(target,record.attributeName==="class");
           if (overlays.has(target)) syncLayer(target);
@@ -402,17 +411,29 @@
           watchImage(record.target);
         }
       }
-    });
+      if (silhouettes && records.some(record=>record.removedNodes.length)) {
+        for (const [root,observer] of roots) {
+          if (!(root instanceof ShadowRoot) || root.host.isConnected) continue;
+          observer.disconnect();
+          root.removeEventListener("load",loaded,true);
+          root.removeEventListener("error",failed,true);
+          root.querySelectorAll("img").forEach(forget);
+          backgrounds?.remove(root);
+          roots.delete(root);
+        }
+      }
+    }
     function observeRoot(root) {
-      roots.add(root);
+      const observer=new MutationObserver(mutations);
+      roots.set(root,observer);
       root.addEventListener("load",loaded,true);
       root.addEventListener("error",failed,true);
       observer.observe(root, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ["src","srcset","alt","title","aria-label","style","class"]
-    });
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["src","srcset","alt","title","aria-label","style","class","role"]
+      });
     }
 
     // Initial on-screen images gate the page. Later images keep individual placeholders.
@@ -442,11 +463,29 @@
     observeRoot(document);
     scan(document);
 
+    state.summary = silhouettes ? () => {
+      const counts={masked:0,clear:0,unscanned:0,pending:0};
+      for (const root of roots.keys()) {
+        for (const el of root.querySelectorAll("img,[data-macos-filter-background]")) {
+          const states=[];
+          if (el instanceof HTMLImageElement) states.push(el.dataset.macosFilterStatus);
+          if (el.hasAttribute("data-macos-filter-background")) states.push(el.dataset.macosFilterBackground);
+          for (const status of states) {
+            if (status==="people-masked") counts.masked++;
+            else if (status==="no-person-detected") counts.clear++;
+            else if (status==="unscanned") counts.unscanned++;
+            else counts.pending++;
+          }
+        }
+      }
+      return counts;
+    } : null;
     state.stop = () => {
+      state.summary=null;
       stopped = true;
       clearTimeout(deadline); clearTimeout(releaseTimer);
       document.documentElement?.setAttribute("data-mf-page-ready","");
-      observer.disconnect();
+      for (const observer of roots.values()) observer.disconnect();
       sizes.disconnect();
       proximity.disconnect(); pending.clear(); nearby.clear();
       document.querySelectorAll('img').forEach(image => { restoreImage(image); delete image.dataset.macosFilterStatus; delete image.dataset.macosFilterReason; });
@@ -457,7 +496,7 @@
       }
       watched.clear();
       backgrounds?.stop();
-      for (const root of roots) {
+      for (const root of roots.keys()) {
         root.removeEventListener("load", loaded, true);
         root.removeEventListener("error", failed, true);
         root.querySelectorAll("img").forEach(img=>{restoreImage(img);delete img.dataset.macosFilterStatus;delete img.dataset.macosFilterReason;});
@@ -486,7 +525,11 @@
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "local" && (changes.enabled || changes.siteRules || changes.policy)) refresh();
   });
-  chrome.runtime.onMessage.addListener(message => {
+  chrome.runtime.onMessage.addListener((message,sender,reply) => {
+    if (message?.type==="silhouetteSummary" && state.summary && sender.url===chrome.runtime.getURL("popup.html")) {
+      reply(state.summary());
+      return false;
+    }
     if (message && message.type === "disableFiltering") syncEnabled(false);
   });
 })();

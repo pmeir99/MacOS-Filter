@@ -16,6 +16,7 @@ public protocol SegmentationProvider {
 }
 
 public enum SegmentationError: Error {
+    case unsupportedImage
     case noUsableMask
     case maskEncodingFailed
 }
@@ -45,12 +46,22 @@ public final class VisionPersonSegmentationProvider: SegmentationProvider {
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceCreateThumbnailWithTransform: true,
                 kCGImageSourceThumbnailMaxPixelSize: 1536
-              ] as CFDictionary) else { throw SegmentationError.noUsableMask }
+              ] as CFDictionary) else { throw SegmentationError.unsupportedImage }
+        do {
+            return try segment(upright, quality: .accurate, silhouetteOnly: silhouetteOnly)
+        } catch {
+            guard silhouetteOnly else { throw error }
+            return try segment(upright, quality: .balanced, silhouetteOnly: true)
+        }
+    }
+
+    private func segment(_ image: CGImage, quality: VNGeneratePersonSegmentationRequest.QualityLevel,
+                         silhouetteOnly: Bool) throws -> Data? {
         let request = VNGeneratePersonSegmentationRequest()
-        request.qualityLevel = .accurate
+        request.qualityLevel = quality
         request.outputPixelFormat = kCVPixelFormatType_OneComponent8
         request.usesCPUOnly = false
-        let handler = VNImageRequestHandler(cgImage: upright, options: [:])
+        let handler = VNImageRequestHandler(cgImage: image, options: [:])
         try handler.perform([request])
         guard let pixelBuffer = request.results?.first?.pixelBuffer else { throw SegmentationError.noUsableMask }
         return try Self.pngFromAlphaMask(pixelBuffer, silhouetteOnly: silhouetteOnly)

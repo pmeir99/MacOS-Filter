@@ -179,10 +179,13 @@ with tempfile.TemporaryDirectory() as temp, sync_playwright() as pw:
             selectors=["figure","#still","#bg","#inside","#pair","figure button","#bg button"]
             baseline={key:snap(key) for key in selectors}
             bounds={key:page.locator(key).bounding_box() for key in selectors}
+            before_requests=len(requests)
             setting("publicMedia",False)
             setting("enabled",True)
             page.wait_for_selector('#subject[data-macos-filter-status="unscanned"]')
             assert not ImageChops.difference(baseline["figure"],snap("figure")).getbbox()
+            assert not any(dest=="empty" and host in ["thumb.wikimedia.org","pbs.twimg.com"]
+                           for host,dest,cookie in requests[before_requests:]),"CDN read without opt-in"
             t0=time.perf_counter()
             setting("publicMedia",True)
             for selector in ["#subject","#inside","#pair"]:
@@ -211,6 +214,37 @@ with tempfile.TemporaryDirectory() as temp, sync_playwright() as pw:
             assert page.locator("#pair").get_attribute("data-macos-filter-overlay") is None
             assert any(host in ["thumb.wikimedia.org","pbs.twimg.com"] and dest=="empty" and cookie is None
                        for host,dest,cookie in requests)
+            if domain=="x.com":
+                batch = page.evaluate("""async () => {
+                  const area=document.createElement('section');
+                  const begin=performance.now(); const elapsed=[];
+                  const done=new Promise((resolve,reject)=>{
+                    const timer=setTimeout(()=>{watch.disconnect();reject(Error('Batch timed out'))},45000);
+                    const watch=new MutationObserver(()=>{
+                      for(const img of area.children){
+                        if(!img.hasAttribute('data-mf-reviewed') || img.dataset.timed) continue;
+                        const expected=img.alt==='portrait'?'people-masked':'no-person-detected';
+                        if(img.dataset.macosFilterStatus!==expected){clearTimeout(timer);watch.disconnect();reject(Error(img.dataset.macosFilterStatus));return;}
+                        img.dataset.timed='yes';elapsed.push(performance.now()-begin);
+                      }
+                      if(elapsed.length===24){clearTimeout(timer);watch.disconnect();requestAnimationFrame(()=>requestAnimationFrame(resolve));}
+                    });
+                    watch.observe(area,{subtree:true,attributes:true,attributeFilter:['data-mf-reviewed']});
+                  });
+                  for(let n=0;n<24;n++){const img=new Image(64,64);img.alt=n%2?'portrait':'coffee';img.src='/'+img.alt+'.png';area.append(img)}
+                  document.body.append(area);await done;area.remove();
+                  return {images:elapsed.length,median_ms:Math.round(elapsed[11]),last_paint_ms:Math.round(performance.now()-begin)};
+                }""")
+                print("24-image cached-source gallery (browser wall clock):",batch,flush=True)
+            # Change the same image between browser-decoded still formats and compare each final verdict.
+            for fmt in ["JPEG","WEBP","AVIF"]:
+                buf=BytesIO()
+                Image.open(portrait).convert("RGB").save(buf,format=fmt)
+                value="data:image/"+fmt.lower()+";base64,"+base64.b64encode(buf.getvalue()).decode()
+                page.locator("#pair").evaluate("(img,src)=>{img.src=src}",value)
+                page.wait_for_selector('#pair[data-macos-filter-status="people-masked"]')
+                page.locator("#pair").evaluate("img=>{img.src='/coffee.png'}")
+                page.wait_for_selector('#pair[data-macos-filter-status="no-person-detected"]')
             setting("enabled",False)
             page.wait_for_selector('#bg[data-macos-filter-background]',state="detached")
             assert not ImageChops.difference(baseline["figure"],snap("figure")).getbbox()

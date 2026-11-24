@@ -15,7 +15,7 @@ from PIL import Image, ImageChops, ImageDraw
 host, archive = sys.argv[1:]
 counts = Counter()
 elapsed, warm = [], []
-missed, extra = [], []
+missed, extra, unscanned = [], [], []
 intersection = union = relevant = predicted = 0
 
 def infer(process, data, request_id):
@@ -28,7 +28,7 @@ def infer(process, data, request_id):
     length, = struct.unpack("<I",process.stdout.read(4))
     result = json.loads(process.stdout.read(length))
     ms = (time.perf_counter()-start)*1000
-    assert result.get("ok") and result["requestID"]==request_id, result.get("error")
+    assert result["requestID"]==request_id, request_id
     return result, ms
 
 def foreground(mask):
@@ -56,6 +56,14 @@ with ZipFile(archive) as dataset, subprocess.Popen(
         image_id = PurePosixPath(name).stem
         answer, ms = infer(process,data,image_id)
         elapsed.append(ms)
+        if not answer["ok"]:
+            issue=dict(id=image_id,size=size,error=answer.get("error"),labeled_person=bool(truth.getbbox()))
+            unscanned.append(issue)
+            print("Unscanned benchmark photo",issue,flush=True)
+            # The browser leaves this image untouched. Include all its labeled pixels as missed.
+            relevant+=foreground(truth)
+            union+=foreground(truth)
+            continue
         found = answer["personDetected"]
         actual = bool(truth.getbbox())
         counts[(actual,found)]+=1
@@ -74,7 +82,7 @@ with ZipFile(archive) as dataset, subprocess.Popen(
         warm.append(ms)
     process.stdin.close()
     process.wait(timeout=20)
-summary = dict(images=len(images),true_positive=counts[True,True],true_negative=counts[False,False],
+summary = dict(images=len(images),unscanned=unscanned,true_positive=counts[True,True],true_negative=counts[False,False],
                false_positive=extra,false_negative=missed,foreground_iou=round(intersection/max(1,union),3),
                foreground_precision=round(intersection/max(1,predicted),3),foreground_recall=round(intersection/max(1,relevant),3),
                native_uncached_ms_p50=round(statistics.median(elapsed),1),native_uncached_ms_p95=round(sorted(elapsed)[121],1),

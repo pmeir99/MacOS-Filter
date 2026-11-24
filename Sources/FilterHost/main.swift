@@ -286,7 +286,16 @@ enum FilterHostMain {
                 maskCache.setObject(maskBase64 as NSString, forKey: key, cost: maskBase64.utf8.count)
                 return NativeResponse(requestID: request.requestID, ok: true, maskData: maskBase64)
             } catch {
-                return NativeResponse(requestID: request.requestID, ok: false, coverWholeImage: true, error: "Local image analysis failed.")
+                let reason: String
+                if settings.mode == .peopleOnly {
+                    if let segmentation = error as? SegmentationError {
+                        reason = "Person segmentation: "+String(describing: segmentation)
+                    } else {
+                        let detail = error as NSError
+                        reason = "Person segmentation: "+detail.domain+" ("+String(detail.code)+")"
+                    }
+                } else { reason = "Local image analysis failed." }
+                return NativeResponse(requestID: request.requestID, ok: false, coverWholeImage: true, error: reason)
             }
         }
     }

@@ -60,6 +60,28 @@ function nativeRequest(action, imageData, profile) {
 let active = 0;
 const waiting = [];
 let queuedBytes = 0;
+const thumbnailReads = new Map();
+function readThumbnail(source) {
+  let request = thumbnailReads.get(source.url);
+  if (!request) {
+    request = GoogleThumbnails.read(source.url,source.limit).finally(()=>thumbnailReads.delete(source.url));
+    thumbnailReads.set(source.url,request);
+  }
+  return request;
+}
+// An X photo can be both a CSS background and an img. Concurrent copies share
+// Vision work; native digest caching covers later copies and tab revisits.
+const silhouetteRequests = new Map();
+async function segmentPixels(imageData, profile) {
+  if ((profile.mode || profile.analysis?.mode) !== "peopleOnly")
+    return nativeRequest("segmentWithPolicy",imageData,profile);
+  let request=silhouetteRequests.get(imageData);
+  if (!request) {
+    request=nativeRequest("segmentWithPolicy",imageData,profile).finally(()=>silhouetteRequests.delete(imageData));
+    silhouetteRequests.set(imageData,request);
+  }
+  return {...await request};
+}
 async function scheduledAnalysis(imageData, profile, thumbnail, paintSettings) {
   const cost = thumbnail ? 4*Math.ceil(thumbnail.limit/3) : imageData?.length;
   if (!thumbnail && (typeof imageData !== "string" || !imageData.length || imageData.length > 4 * Math.ceil(MAX_IMAGE_BYTES/3))) throw Error("Invalid local image payload.");
@@ -70,8 +92,8 @@ async function scheduledAnalysis(imageData, profile, thumbnail, paintSettings) {
     queuedBytes -= cost;
   } else active++;
   try {
-    if (thumbnail) imageData = await GoogleThumbnails.read(thumbnail.url, thumbnail.limit);
-    const result = await nativeRequest("segmentWithPolicy",imageData,profile);
+    if (thumbnail) imageData = await readThumbnail(thumbnail);
+    const result = await segmentPixels(imageData,profile);
     if (paintSettings && result.ok && result.personDetected && result.maskData) {
       result.background = await BackgroundPaint.render(imageData,result.maskData,paintSettings);
       delete result.maskData;
@@ -111,7 +133,7 @@ async function filterImage(imageData, description, page, thumbnail, background) 
   const result = await scheduledAnalysis(imageData, {...profile, analysis}, remote, background ? settings : null);
   if (silhouettes && !result.retry) {
     if (!result.ok || typeof result.personDetected !== "boolean" ||
-        (result.personDetected && !(background ? result.background : result.maskData))) throw Error("Person segmentation unavailable.");
+        (result.personDetected && !(background ? result.background : result.maskData))) throw Error(result.error || "Person segmentation unavailable.");
     return {...result,settings};
   }
   if (settings.mode === "personBlur" && !result.retry) {
