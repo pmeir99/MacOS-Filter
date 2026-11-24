@@ -129,7 +129,7 @@
       }
 
       try {
-        const result = await chrome.runtime.sendMessage({ type: "filterImage", url });
+        const result = await chrome.runtime.sendMessage({ type: "filterImage", url, description:[image.alt,image.title,image.getAttribute("aria-label")].filter(Boolean).join(" ").slice(0,4096) });
         if (stopped || !image.isConnected || currentURL.get(image) !== url) return;
         if (result && result.ok === true && result.settings && result.settings.enabled === false) {
           removeOverlay(image);
@@ -200,7 +200,7 @@
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ["src", "srcset"]
+      attributeFilter: ["src", "srcset","alt","title","aria-label"]
     });
     scan(document);
 

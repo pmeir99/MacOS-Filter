@@ -4,7 +4,7 @@ async function apply(){
   clearTimeout(timer); watcher?.disconnect(); CSS.highlights.delete("mf-phrases");
   const {enabled,siteRules}=await chrome.storage.local.get(["enabled","siteRules"]);
   const rules=FilterPolicy.parse(siteRules);
-  const pattern=FilterPolicy.pattern(rules.phrases);
+  const pattern=FilterPolicy.pattern([...rules.phrases,...rules.sitePhrases.filter(rule=>FilterPolicy.excludes(location.hostname,[rule.site])).map(rule=>rule.phrase)]);
   if(!enabled || !pattern || FilterPolicy.excludes(location.hostname,rules.excluded))return;
   function scan(){
     const marks=new Highlight();

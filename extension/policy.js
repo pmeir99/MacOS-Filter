@@ -8,7 +8,11 @@ globalThis.FilterPolicy = (() => {
     return hosts;
   }
   function parse(input = {}) {
-    return { blocked: domains(input.blocked), excluded: domains(input.excluded), phrases: lines(input.phrases) };
+    return { blocked: domains(input.blocked), excluded: domains(input.excluded), phrases: lines(input.phrases), products: lines(input.products), sitePhrases: lines(input.sitePhrases).map(row => {
+      const split = row.indexOf('|');
+      if (split < 1 || !row.slice(split+1).trim()) throw Error('Use domain | phrase for each site rule.');
+      return {site:domains(row.slice(0,split))[0], phrase:row.slice(split+1).trim()};
+    }) };
   }
   function excludes(host, sites) {
     return sites.some(site => host === site || host.endsWith("." + site));

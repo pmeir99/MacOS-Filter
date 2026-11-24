@@ -14,3 +14,9 @@ test("word and sentence rules match literal text on word boundaries",()=>{
   assert.deepEqual([...("ADULT TOY a.b axb adult toybox אסור").matchAll(regex)].map(x=>x[0]),["ADULT TOY","a.b","אסור"]);
   assert.equal(pattern([]),null);
 });
+test("site phrases and product description rules",()=>{
+  const p=parse({sitePhrases:"store.example | sale",products:"lingerie\nunderwear"});
+  assert.deepEqual(p.sitePhrases,[{site:"store.example",phrase:"sale"}]);
+  assert.ok(pattern(p.products).test("Lingerie set"));
+  assert.throws(()=>parse({sitePhrases:"missing separator"}));
+});

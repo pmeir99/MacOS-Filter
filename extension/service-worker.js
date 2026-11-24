@@ -78,23 +78,37 @@ async function analyzeImage(url) {
   return nativeRequest("segment", bytesToBase64(bytes));
 }
 
-async function filterImage(url) {
+let active = 0;
+const waiting = [];
+async function scheduledAnalysis(url) {
+  if (active >= 2) {
+    if (waiting.length >= 64) throw Error("Local image queue is full.");
+    await new Promise(resolve => waiting.push(resolve));
+  } else active++;
+  try { return await analyzeImage(url); }
+  finally { const next=waiting.shift(); if(next) next(); else active--; }
+}
+
+async function filterImage(url, description) {
   const settingsResponse = await nativeRequest("getSettings");
   if (!settingsResponse.ok || !settingsResponse.settings) {
     throw new Error("The Mac app did not return filtering settings.");
   }
   const settings = MacOSFilterHelpers.normalizeSettings(settingsResponse.settings);
   if (!settings.enabled) return { ok: true, settings };
+  const {siteRules} = await chrome.storage.local.get("siteRules");
+  const labels = FilterPolicy.pattern(FilterPolicy.parse(siteRules).products);
+  if (labels && labels.test(description || "")) return {ok:true,coverWholeImage:true,settings:{...settings,opacity:1,overlayStyle:"solid"}};
   if (settings.mode === "entireImage") {
     return { ok: true, coverWholeImage: true, settings };
   }
-  const result = await analyzeImage(url);
+  const result = await scheduledAnalysis(url);
   return { ...result, settings: result.coverWholeImage || !result.ok ? {...settings, opacity:1, overlayStyle:'solid'} : settings };
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || message.type !== "filterImage") return false;
-  filterImage(message.url)
+  filterImage(message.url, message.description)
     .then(sendResponse)
     .catch(error => sendResponse({ ok: false, coverWholeImage: true, error: error.message }));
   return true;
