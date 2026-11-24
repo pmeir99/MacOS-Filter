@@ -4,6 +4,7 @@ Classification says what may be in an image; segmentation says which pixels to c
 
 | Candidate | Classification | Pixel masks | Local macOS path | Key limitation |
 | --- | --- | --- | --- | --- |
+| DeepLabV3 FP16 | PASCAL VOC pixel classes | Person-class silhouette | Bundled Core ML model from Apple | Small or obscured people can be missed |
 | Apple Vision person segmentation | None | Person silhouette | Built into macOS Vision | Does not classify skin, clothing, nudity, or modesty |
 | OpenNSFW2 | Porn probability | None | Evaluate export to Core ML | Porn-focused binary probability; no seven bands or body location |
 | NudeNet | Exposed/covered body-part and face detections | Bounding boxes | ONNX runtime or convert/test | Not pixel masks; AGPL-3.0 license |
@@ -13,7 +14,9 @@ Classification says what may be in an image; segmentation says which pixels to c
 
 ## Current provider
 
-The app currently calls Apple Vision VNGeneratePersonSegmentationRequest using the accurate quality setting. It returns one person matte per image. The provider does not return labels for exposure or clothing. It does not identify gender. The Vision implementation ships with macOS; no standalone model weight files are currently included in the app or extension.
+**Mask people only** uses the DeepLabV3 FP16 model from Apple’s Core ML catalog. The host selects the person class, caches its mask locally, and retries failed inference with Vision person segmentation. The separate **Blur images containing people** mode uses Vision body and face rectangles and blurs the entire image. The seven-level and skin modes use separate bundled models.
+
+The `Silhouette-benchmark` Actions artifact contains the COCO128-seg measurements for the packaged helper and before/after screenshots from Chromium. Image-level errors, pixel overlap, and hardware-dependent timings describe different aspects of performance.
 
 ## Suggested bake-off
 

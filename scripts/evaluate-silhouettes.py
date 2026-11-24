@@ -17,6 +17,7 @@ counts, engines = Counter(), Counter()
 elapsed, warm = [], []
 missed, extra, unscanned = [], [], []
 intersection = union = relevant = predicted = 0
+instances = half_covered = small = small_half_covered = 0
 
 def infer(process, data, request_id):
     request = dict(protocolVersion=1, action="segment", modeOverride="peopleOnly",
@@ -45,6 +46,7 @@ with ZipFile(archive) as dataset, subprocess.Popen(
         with Image.open(BytesIO(data)) as photo:
             size = photo.size
         truth = Image.new("L",size)
+        polygons=[]
         lines = dataset.read(label).decode().splitlines() if label in files else []
         for line in lines:
             fields=line.split()
@@ -52,6 +54,7 @@ with ZipFile(archive) as dataset, subprocess.Popen(
             points=list(map(float,fields[1:]))
             assert len(points)>=6 and len(points)%2==0
             coords=[(x*size[0],y*size[1]) for x,y in zip(points[::2],points[1::2])]
+            polygons.append(coords)
             ImageDraw.Draw(truth).polygon(coords,fill=255)
         image_id = PurePosixPath(name).stem
         answer, ms = infer(process,data,image_id)
@@ -61,6 +64,7 @@ with ZipFile(archive) as dataset, subprocess.Popen(
             unscanned.append(issue)
             print("Unscanned benchmark photo",issue,flush=True)
             # The browser leaves this image untouched. Include all its labeled pixels as missed.
+            instances+=len(polygons)
             relevant+=foreground(truth)
             union+=foreground(truth)
             continue
@@ -74,6 +78,19 @@ with ZipFile(archive) as dataset, subprocess.Popen(
         if found:
             detected=Image.open(BytesIO(base64.b64decode(answer["maskData"]))).convert("RGBA").getchannel("A")
             detected=detected.resize(size,Image.Resampling.BILINEAR).point(lambda x:255 if x>=128 else 0)
+        for polygon in polygons:
+            instance=Image.new("L",size)
+            ImageDraw.Draw(instance).polygon(polygon,fill=255)
+            box=instance.getbbox()
+            if not box: continue
+            cropped=instance.crop(box)
+            area=foreground(cropped)
+            matched=foreground(ImageChops.darker(cropped,detected.crop(box)))>=area/2
+            instances+=1
+            half_covered+=matched
+            if area<32*32:
+                small+=1
+                small_half_covered+=matched
         intersection+=foreground(ImageChops.darker(truth,detected))
         union+=foreground(ImageChops.lighter(truth,detected))
         relevant+=foreground(truth)
@@ -83,7 +100,8 @@ with ZipFile(archive) as dataset, subprocess.Popen(
         warm.append(ms)
     process.stdin.close()
     process.wait(timeout=20)
-summary = dict(images=len(images),engines=dict(engines),unscanned=unscanned,true_positive=counts[True,True],true_negative=counts[False,False],
+summary = dict(images=len(images),engines=dict(engines),unscanned=unscanned,instances=instances,instances_half_covered=half_covered,small_instances=small,small_instances_half_covered=small_half_covered,
+               true_positive=counts[True,True],true_negative=counts[False,False],
                false_positive=extra,false_negative=missed,foreground_iou=round(intersection/max(1,union),3),
                foreground_precision=round(intersection/max(1,predicted),3),foreground_recall=round(intersection/max(1,relevant),3),
                native_uncached_ms_p50=round(statistics.median(elapsed),1),native_uncached_ms_p95=round(sorted(elapsed)[121],1),

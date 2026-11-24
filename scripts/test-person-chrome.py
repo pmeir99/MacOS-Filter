@@ -45,6 +45,8 @@ class Fixture(BaseHTTPRequestHandler):
               *{{box-sizing:border-box}} body{{margin:0;background:#e1f0e2}}main{{display:flex;gap:4px}}
               img,.bg,figure{{width:180px;height:180px;display:block;margin:0}}
               figure{{position:relative;clip-path:circle(48%);overflow:hidden}}
+              figure::after{{content:"";position:absolute;inset:0;pointer-events:none;
+                background:radial-gradient(circle at center,transparent 48%,#173d5b 52%)}}
               button{{appearance:none;border:0;border-radius:0;box-shadow:none;position:absolute;right:38px;top:90px;background:#61327a;color:white;z-index:2}}
               .bg{{position:relative;background-size:cover;background-position:center}}
               {css_background}
@@ -196,23 +198,27 @@ with tempfile.TemporaryDirectory() as temp, sync_playwright() as pw:
             page.wait_for_selector('#still[data-macos-filter-status="no-person-detected"]')
             page.wait_for_selector('#bg[data-macos-filter-background="people-masked"]')
             print(f"{domain} fixture: gallery decisions after settings save in {(time.perf_counter()-t0)*1000:.0f} ms",flush=True)
+            proof=Path("silhouette-comparison");proof.mkdir(exist_ok=True)
+            rendered={key:snap(key) for key in selectors}
+            for key in selectors:
+                label=key.replace("#","").replace(" ","-")
+                baseline[key].save(proof/(domain+"-"+label+"-before.png"))
+                rendered[key].save(proof/(domain+"-"+label+"-after.png"))
             assert all(page.locator(key).bounding_box()==bounds[key] for key in selectors)
             for key in ["figure button","#bg button"]:
                 assert page.locator(key).evaluate("el=>{const r=el.getBoundingClientRect();return document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)===el}")
             for key in ["#still","figure button","#bg button"]:
-                assert not ImageChops.difference(baseline[key],snap(key)).getbbox(),key
+                assert not ImageChops.difference(baseline[key],rendered[key]).getbbox(),key
             for key in ["figure","#bg","#inside","#pair"]:
-                delta=ImageChops.difference(baseline[key],snap(key))
+                delta=ImageChops.difference(baseline[key],rendered[key])
                 assert delta.getbbox(),key
                 assert not delta.crop((0,0,5,5)).getbbox(),(key,"background changed")
+            assert baseline["figure"].getpixel((160,90))==rendered["figure"].getpixel((160,90))==(23,61,91),"foreground cutout moved"
             pair_delta=ImageChops.difference(baseline["#pair"],snap("#pair"))
             assert pair_delta.crop((100,45,125,70)).getbbox() and pair_delta.crop((386,45,411,70)).getbbox(),"missed one of two faces"
             figure_delta=ImageChops.difference(baseline["figure"],snap("figure"))
             assert figure_delta.crop((70,29,90,52)).getbbox(),"portrait face remained unchanged"
             assert not figure_delta.crop((14,30,35,45)).getbbox(),"background beside subject changed"
-            proof=Path("silhouette-comparison");proof.mkdir(exist_ok=True)
-            baseline["figure"].save(proof/(domain+"-before.png"))
-            snap("figure").save(proof/(domain+"-after.png"))
             # Recycle one element from a human to a blob containing a non-person.
             page.locator("#pair").evaluate("""async img=>{const res=await fetch('/coffee.png');img.src=URL.createObjectURL(await res.blob());}""")
             page.wait_for_selector('#pair[data-macos-filter-status="no-person-detected"]')

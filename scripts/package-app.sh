@@ -60,7 +60,7 @@ test "$(git hash-object "$MODEL_DIR/Nudity.mlmodel")" = fd69d0c03ef5458b4543b376
 xcrun coremlcompiler compile "$MODEL_DIR/Nudity.mlmodel" "$APP/Contents/Resources"
 test -d "$APP/Contents/Resources/Nudity.mlmodelc"
 curl -fsSL --retry 3 'https://ml-assets.apple.com/coreml/models/Image/ImageSegmentation/DeepLabV3/DeepLabV3FP16.mlmodel' -o "$MODEL_DIR/DeepLabV3FP16.mlmodel"
-shasum -a 256 "$MODEL_DIR/DeepLabV3FP16.mlmodel"
+echo "6c2c8cbe1c2d765f231408458b8c273976039ae04a05b112d748fc21cb3bfe95  $MODEL_DIR/DeepLabV3FP16.mlmodel" | shasum -a 256 -c -
 xcrun coremlcompiler compile "$MODEL_DIR/DeepLabV3FP16.mlmodel" "$APP/Contents/Resources"
 test -d "$APP/Contents/Resources/DeepLabV3FP16.mlmodelc"
 bash scripts/build-policy-models.sh "$APP/Contents/Resources" "$MODEL_DIR"
@@ -128,7 +128,10 @@ if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
   curl -fsSL --retry 3 'https://raw.githubusercontent.com/scikit-image/scikit-image/e8a42ba85aaf5fd9322ef9ca51bc21063b22fcae/skimage/data/coffee.png' -o "$MODEL_DIR/coffee.png"
   "$MODEL_DIR/qa/bin/pip" -q install playwright==1.55.0
   "$MODEL_DIR/qa/bin/playwright" install chromium
-  curl -fsSL --retry 3 -H 'Accept: application/octet-stream' 'https://api.github.com/repos/ultralytics/assets/releases/assets/178786181' -o "$MODEL_DIR/coco128-seg.zip"
+  if ! curl -fsSL --retry 3 'https://github.com/ultralytics/assets/releases/download/v0.0.0/coco128-seg.zip' -o "$MODEL_DIR/coco128-seg.zip"; then
+    curl -fsSL --retry 3 -H 'Accept: application/octet-stream' 'https://api.github.com/repos/ultralytics/assets/releases/assets/178786181' -o "$MODEL_DIR/coco128-seg.zip"
+  fi
+  test "$(wc -c < "$MODEL_DIR/coco128-seg.zip" | tr -d ' ')" = 7119623
   "$MODEL_DIR/qa/bin/python" scripts/evaluate-silhouettes.py "$HOST" "$MODEL_DIR/coco128-seg.zip"
   "$MODEL_DIR/qa/bin/python" scripts/test-person-chrome.py "$SHIPPED" "$MODEL_DIR/portrait.png" "$MODEL_DIR/coffee.png"
 fi
