@@ -26,3 +26,7 @@ Select **Seven levels** in Chrome to compare each detected person's crop with th
 Enable product families separately for underwear/lingerie, adult products/accessories and menstrual products. These optional settings classify image content without requiring matching product text. They apply to the two experimental modes. Predictions compare visual embeddings with text descriptions; the resulting level and label are estimates. Missing model output or failure produces a full cover. A confident-looking wrong prediction can still pass.
 
 All weights, precomputed prompt embeddings and the Apple Silicon helper ship together. Model conversion, prompt preparation and dependency downloads occur during packaging. Filtering uses local Vision, Core ML and a native Apple Silicon worker linked to the bundled ONNX Runtime library. Rendering composites a solid color or adjustable Gaussian blur using the returned alpha mask. No generative fill is used.
+
+### Chrome controls
+
+Click the toolbar icon to pause or resume filtering for the current hostname and its subdomains, choose a site-specific image mode, or return to the inherited mode. **Open extension** opens the full settings in a tab. Site changes save automatically. A parent-domain exclusion can be edited under **Websites & text**.

@@ -47,7 +47,7 @@ class Fixture(BaseHTTPRequestHandler):
               figure{{position:relative;clip-path:circle(48%);overflow:hidden}}
               figure::after{{content:"";position:absolute;inset:0;pointer-events:none;
                 background:radial-gradient(circle at center,transparent 48%,#173d5b 52%)}}
-              button{{appearance:none;border:0;border-radius:0;box-shadow:none;position:absolute;right:38px;top:90px;background:#61327a;color:white;z-index:2}}
+              button{{width:56px;height:22px;appearance:none;border:0;border-radius:0;box-shadow:none;position:absolute;right:38px;top:90px;background:#61327a;color:white;z-index:2}}
               .bg{{position:relative;background-size:cover;background-position:center}}
               {css_background}
             </style><main>
@@ -212,6 +212,8 @@ with tempfile.TemporaryDirectory() as temp, sync_playwright() as pw:
                 rendered[key].save(proof/(domain+"-"+label+"-after.png"))
             assert all(page.locator(key).bounding_box()==bounds[key] for key in selectors)
             for key in ["figure button","#bg button"]:
+                # A fractional CSS edge makes a locator screenshot include a column of the photo.
+                assert all(value==int(value) for value in bounds[key].values()),bounds[key]
                 assert page.locator(key).evaluate("el=>{const r=el.getBoundingClientRect();return document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)===el}")
             for key in ["#still","figure button","#bg button"]:
                 assert not ImageChops.difference(baseline[key],rendered[key]).getbbox(),key
@@ -224,7 +226,8 @@ with tempfile.TemporaryDirectory() as temp, sync_playwright() as pw:
             assert pair_delta.crop((100,45,125,70)).getbbox() and pair_delta.crop((386,45,411,70)).getbbox(),"missed one of two faces"
             figure_delta=ImageChops.difference(baseline["figure"],snap("figure"))
             assert figure_delta.crop((70,29,90,52)).getbbox(),"portrait face remained unchanged"
-            assert not figure_delta.crop((14,30,35,45)).getbbox(),"background beside subject changed"
+            # At the antialiased cutout boundary Chromium may round a composited channel by one.
+            assert max(hi for lo,hi in figure_delta.crop((14,30,35,45)).getextrema())<=1,"background beside subject changed"
             # Recycle one element from a human to a blob containing a non-person.
             page.locator("#pair").evaluate("""async img=>{const res=await fetch('/coffee.png');img.src=URL.createObjectURL(await res.blob());}""")
             page.wait_for_selector('#pair[data-macos-filter-status="no-person-detected"]')

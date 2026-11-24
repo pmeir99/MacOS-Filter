@@ -1,15 +1,21 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MacOS Filter Settings</title><link rel="stylesheet" href="options.css"></head>
-<body><main>
-<header><img src="icons/filter-48.png" height="40" width="40" alt=""><div><p>MacOS Filter</p><h1>Settings</h1></div><output id="status" role="status"></output></header>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MacOS Filter Settings</title><link rel="stylesheet" href="settings-ui.css"><link rel="stylesheet" href="options.css"></head>
+<body><div class="window"><aside>
+<div class="brand"><img src="icons/filter-48.png" alt="" width="42" height="42"><div><strong>MacOS Filter</strong><p>Settings</p></div></div>
+<nav aria-label="Settings sections">
+<a href="#general" aria-current="location"><i class="tile blue" aria-hidden="true">☷</i>General</a>
+<a href="#appearance"><i class="tile violet" aria-hidden="true">◐</i>Mask appearance</a>
+<a href="#detection"><i class="tile amber" aria-hidden="true">◎</i>Recognition</a>
+<a href="#websites"><i class="tile green" aria-hidden="true">⊕</i>Websites &amp; text</a>
+<a href="#mac"><i class="tile gray" aria-hidden="true">▤</i>Mac helper</a>
+</nav></aside>
+<main><header class="page-head"><h1>Filter settings</h1><output id="status" role="status"></output></header>
 <form id="controls"><fieldset disabled id="fields">
-<section><h2>Filtering</h2><div id="filter"></div></section>
-<section><h2>Mask appearance</h2><div id="render"></div><small id="peopleOnlyHelp" hidden>Blur or paint detected silhouettes. Clear and unreadable images keep their original appearance. Enabling public image requests lets the filter read public Wikimedia and X images when the browser cannot supply pixels.</small><small id="personHelp" hidden>When a person is detected, the whole image blurs. A clear result keeps the original image. On Google Search this mode may reload a public Google thumbnail for local analysis.</small><small id="otherModesHelp">Risk cutoffs, blocked image descriptions, and analysis failures use an opaque black cover.</small></section>
-<section><h2>Recognition</h2><div id="recognition"></div><small>Skin, clothing levels, products, and visual presentation are estimates. Uncertain presentation matches either selection.</small></section>
-<section><h2>Websites and text</h2><small>Use one entry per line. Excluded domains include their subdomains.</small><div id="rules"></div></section>
-<section><h2>Website profiles</h2><div id="profiles"></div><button type="button" id="add">Add website profile</button></section>
+<section id="general"><h2>General</h2><div id="filter" class="card"></div></section>
+<section id="appearance"><h2>Mask appearance</h2><div id="render" class="card"></div><p class="note" id="peopleOnlyHelp" hidden>Only detected silhouettes are covered. Clear and unreadable images keep their original appearance. Public image requests can supply pixels from Wikipedia and X.</p><p class="note" id="personHelp" hidden>A detected person blurs the whole image. Google Search may reload a public thumbnail for local analysis.</p><p class="note" id="otherModesHelp">Risk cutoffs, blocked image descriptions and scan errors use an opaque black cover.</p></section>
+<section id="detection"><h2>Recognition</h2><div id="recognition" class="card"></div><p class="note">Skin, clothing levels and visual presentation are estimates. Uncertain presentation matches either selection.</p></section>
+<section id="websites"><h2>Websites &amp; text</h2><div id="rules" class="card"></div><p class="note">Enter one rule per line. Excluded domains include their subdomains.</p>
+<h3>Website profiles</h3><div id="profiles"></div><button type="button" id="add">Add website profile</button></section>
 </fieldset></form>
-<section><h2>Mac helper</h2><label class="row"><span>Check for updates when the Mac app opens</span><input type="checkbox" id="updates" disabled></label>
-<button type="button" id="helper">Open Mac helper</button> <small id="helperStatus" role="status"></small></section>
-</main><script src="policy.js"></script><script src="settings.js"></script><script src="options.js"></script></body></html>
+<section id="mac"><h2>Mac helper</h2><div class="card"><label class="row"><span>Check for updates when the Mac app opens</span><input type="checkbox" role="switch" id="updates" disabled></label><div class="row"><span>Companion app</span><button type="button" id="helper">Open Mac helper</button></div></div><p id="helperStatus" class="note"></p></section>
+</main></div><script src="policy.js"></script><script src="settings.js"></script><script src="options.js"></script></body></html>

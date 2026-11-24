@@ -1,25 +1,12 @@
 <!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>MacOS Filter</title>
-  <link rel="stylesheet" href="popup.css">
-</head>
-<body>
-  <main>
-    <div class="brand">
-      <img src="icons/filter-48.png" width="40" height="40" alt="">
-      <div>
-        <h1>MacOS Filter</h1>
-        <p>On-device image filtering</p>
-      </div>
-    </div>
-    <p id="status" role="status">Checking connection…</p>
-    <p id="counts" hidden></p>
-    <button id="grant" type="button" hidden>Grant Website Access</button>
-    <button id="settings" type="button">Filter Settings</button>
-  </main>
-  <script src="popup.js"></script>
-</body>
-</html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MacOS Filter</title><link rel="stylesheet" href="settings-ui.css"><link rel="stylesheet" href="popup.css"></head>
+<body><main>
+<header class="brand"><img src="icons/filter-48.png" alt="" width="36" height="36"><div><h1>MacOS Filter</h1><p id="connection">On-device filtering</p></div></header>
+<section aria-labelledby="site"><h2 id="site">Current website</h2>
+<div class="card" id="siteControls" hidden>
+<label class="row"><span>Filter this site</span><input id="siteEnabled" type="checkbox" role="switch"></label>
+<label class="row stacked"><span>What to cover</span><select id="siteMode"></select></label>
+</div><p id="status" role="status">Checking this tab…</p><p id="counts" hidden></p></section>
+<button id="grant" type="button" hidden>Grant website access</button>
+<footer><button id="settings" type="button" class="primary">Open extension <span aria-hidden="true">↗</span></button></footer>
+</main><script src="policy.js"></script><script src="settings.js"></script><script src="popup.js"></script></body></html>

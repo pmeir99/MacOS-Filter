@@ -232,6 +232,18 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
   async function handle() {
     if (!current) await initialize();
     switch(message.type) {
+      case "siteSettings":
+      case "editSite": {
+        const tab=await chrome.tabs.get(message.tabId);
+        const url=tab.url && new URL(tab.url);
+        const host=url && ["http:","https:"].includes(url.protocol) ? url.hostname : null;
+        if (!host || (message.host && message.host!==host)) throw Error("Open the popup again on a website.");
+        if (message.type==="editSite") {
+          await serialize(async()=>applySettings(FilterSettings.editSite(current,host,message.field,message.value)));
+        }
+        return {ok:true,host,globallyEnabled:current.enabled,helperConnected:Boolean(nativePort),
+          ...FilterSettings.siteState(current,host)};
+      }
       case "settings": return {ok:true, settings:current};
       case "editSettings": return serialize(async () => {
         const {key,value} = message;

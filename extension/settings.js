@@ -25,5 +25,32 @@ globalThis.FilterSettings = (() => {
     if (![settings.fullLevel,settings.maskLevel].every(Number.isInteger)) throw Error("Choose one of the seven levels.");
     return settings;
   }
-  return {read, defaults, modes};
+  const modeNames = {peopleOnly:"Mask people only",personBlur:"Blur images containing people",allPeople:"All detected people",faces:"Faces",entireImage:"Entire image",adaptive:"Adaptive",skin:"Skin mask (experimental)",policy:"Seven levels (experimental)"};
+  function siteState(settings, host) {
+    const rules=FilterPolicy.parse(settings.siteRules);
+    const excludedBy=rules.excluded.find(site=>site!==host && FilterPolicy.excludes(host,[site])) ||
+      rules.excluded.find(site=>site===host);
+    const own=rules.profiles.find(p=>p.site===host);
+    const parent=rules.profiles.find(p=>p.site!==host && FilterPolicy.excludes(host,[p.site]));
+    return {paused:Boolean(excludedBy),excludedBy,mode:own?.mode || "",inheritedMode:parent?.mode || settings.mode};
+  }
+  function editSite(settings, host, field, value) {
+    if (!host || host!==host.toLowerCase() || FilterPolicy.parse({excluded:host}).excluded[0]!==host)
+      throw Error("This page does not support website rules.");
+    const state=siteState(settings,host), rules={...settings.siteRules};
+    if (field==="enabled" && typeof value==="boolean") {
+      if (state.excludedBy && state.excludedBy!==host) throw Error("This site inherits an exclusion from "+state.excludedBy+".");
+      const domains=FilterPolicy.parse(rules).excluded.filter(site=>site!==host);
+      if (!value) domains.push(host);
+      rules.excluded=domains.join("\n");
+    } else if (field==="mode" && (value==="" || modes.includes(value))) {
+      const profiles=FilterPolicy.parse(rules).profiles;
+      const existing=profiles.find(p=>p.site===host);
+      const inherited=profiles.find(p=>FilterPolicy.excludes(host,[p.site]));
+      rules.profiles=profiles.filter(p=>p.site!==host);
+      if (value) rules.profiles.push({site:host,mode:value,cutoff:existing?.cutoff ?? inherited?.cutoff ?? settings.blockThreshold});
+    } else throw Error("Unsupported website setting.");
+    return read({...settings,siteRules:rules});
+  }
+  return {read,defaults,modes,modeNames,siteState,editSite};
 })();

@@ -18,3 +18,21 @@ test("reject invalid policies before replacing the active settings",()=>{
     assert.throws(()=>FilterSettings.read(bad));
   }
 });
+
+test("popup edits only the current domain and keeps cutoffs and other site rules",()=>{
+  const base=FilterSettings.read({siteRules:{excluded:"other.test",profiles:[
+    {site:"example.org",mode:"faces",cutoff:0.83},{site:"other.test",mode:"skin",cutoff:0.4}]}});
+  const host="news.example.org";
+  let s=FilterSettings.editSite(base,host,"mode","peopleOnly");
+  assert.equal(FilterSettings.siteState(s,host).mode,"peopleOnly");
+  assert.equal(s.siteRules.profiles.find(p=>p.site===host).cutoff,0.83);
+  s=FilterSettings.editSite(s,host,"enabled",false);
+  assert.equal(FilterSettings.siteState(s,"sub."+host).excludedBy,host);
+  assert.throws(()=>FilterSettings.editSite(s,"sub."+host,"enabled",true));
+  s=FilterSettings.editSite(s,host,"enabled",true);
+  s=FilterSettings.editSite(s,host,"mode","");
+  assert.deepEqual(FilterSettings.siteState(s,host),{paused:false,excludedBy:undefined,mode:"",inheritedMode:"faces"});
+  assert.equal(s.siteRules.excluded,"other.test");
+  assert.deepEqual(s.siteRules.profiles,FilterPolicy.parse(base.siteRules).profiles);
+  assert.throws(()=>FilterSettings.editSite(s,host,"mode","bogus"));
+});

@@ -1,5 +1,5 @@
 const $ = id => document.getElementById(id);
-const modeNames = {peopleOnly:"Mask people only",personBlur:"Blur images containing people",allPeople:"All detected people",faces:"Faces",entireImage:"Entire image",adaptive:"Adaptive",skin:"Skin mask (experimental)",policy:"Seven levels (experimental)"};
+const modeNames = FilterSettings.modeNames;
 const levels = ["Explicit activity","Explicit nudity","Swimwear or lingerie","Substantial exposure","Some skin visible","Covered clothing","Long, loose coverage"];
 const levelOptions = Object.fromEntries(levels.map((label,i)=>[i+1,(i+1)+" · "+label]));
 let settings, revision=0;
@@ -36,7 +36,8 @@ function field(section,key,title,type,values) {
     const box=document.createElement("span"); box.className="slider"; number=document.createElement("span");
     box.append(input,number);row.append(box);number.textContent=input.value;
   }
-  input.addEventListener("input",()=>{
+  if (number) input.addEventListener("input",()=>number.textContent=input.value);
+  input.addEventListener(type==="range"?"change":"input",()=>{
     const value=type==="checkbox"?input.checked:(type==="range" || key==="maskLevel" || key==="fullLevel")?Number(input.value):input.value;
     if(number) number.textContent=value;
     if(product){
@@ -78,7 +79,9 @@ function saveProfiles(){
     const [domain,mode,cutoff]=row.children;
     return {site:domain.value.trim(),mode:mode.value,cutoff:Number(cutoff.value)};
   });
+  settings.siteRules.profiles=profiles;
   save("siteRules.profiles",profiles);
+  styles();
 }
 async function init() {
   const response=await chrome.runtime.sendMessage({type:"settings"});
@@ -124,3 +127,35 @@ $("helper").onclick=async()=>{
   if(!result?.ok) $("helperStatus").textContent="Open MacOS Filter from Applications.";
 };
 init().catch(error=>display(error.message));
+
+const links=[...document.querySelectorAll("nav a")];
+function markSection() {
+  const visible=links.filter(link=>document.querySelector(link.hash).getBoundingClientRect().top<=100);
+  const active=window.scrollY+innerHeight>=document.documentElement.scrollHeight-1 ? links.at(-1) : visible.at(-1) || links[0];
+  for (const link of links) {
+    if (link===active) link.setAttribute("aria-current","location");
+    else link.removeAttribute("aria-current");
+  }
+}
+window.addEventListener("scroll",markSection,{passive:true});
+window.addEventListener("resize",markSection);
+markSection();
+
+// A toolbar edit can arrive while this settings tab stays open.
+chrome.storage.onChanged.addListener((changes,area)=>{
+  if (area!=="local" || !changes.policy?.newValue || !settings) return;
+  const next=FilterSettings.read(JSON.parse(changes.policy.newValue));
+  const previous=JSON.parse(changes.policy.oldValue || "{}");
+  const rules=next.siteRules;
+  if (previous.siteRules?.excluded!==rules.excluded && settings.siteRules.excluded!==rules.excluded) {
+    settings.siteRules.excluded=rules.excluded;
+    $("siteRules.excluded").value=rules.excluded;
+  }
+  if (JSON.stringify(previous.siteRules?.profiles)!==JSON.stringify(rules.profiles) &&
+      JSON.stringify(settings.siteRules.profiles)!==JSON.stringify(rules.profiles)) {
+    settings.siteRules.profiles=rules.profiles;
+    $("profiles").replaceChildren();
+    rules.profiles.forEach(profile);
+  }
+  styles();
+});
