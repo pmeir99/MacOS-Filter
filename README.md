@@ -6,3 +6,9 @@ The model is obtained at build time from [Core ML After Dark](https://github.com
 Open **Website and text rules** in the extension for blocked domains, excluded domains and literal phrases. Enable filtering and reload existing tabs. The extension registers an early image visibility rule on permitted HTTP(S) pages. Images retain their layout box while pending. Site redirects use Chrome declarative network rules. Text covers use CSS highlights within individual DOM text nodes. These are visual covers, not removal from the page source.
 
 Coverage is experimental. Browser-internal pages, arbitrary CSS/canvas, and all rendered frames of animated media are outside the verified surface. Per-person presentation, precise skin, product categories, and seven clothing levels need additional evaluated providers. See [design](docs/PRODUCT-GUIDE.md) and [installation](docs/BUILDING.md).
+
+## Display and offline operation
+
+In Website and text rules, choose immediate display with image placeholders or a loading screen for the initial visible images. After eight seconds the page opens and unfinished images retain individual placeholders. Reload existing tabs after changing this option.
+
+The filter issues no HTTP requests for inference or model downloads at runtime. Websites still load their own content normally. The bundled native host processes embedded raster bytes or already-loaded image pixels. A cross-origin image that denies pixel access gets a full cover. Local snapshots are limited to four megapixels and eight MiB. The settings app automatically saves policy changes and the Chrome ID on this Mac. On upgrade it can recover the ID from the existing Chrome host registration.

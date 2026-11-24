@@ -49,9 +49,7 @@ struct SettingsView: View {
                         .monospacedDigit()
                         .frame(width: 48, alignment: .trailing)
                 }
-                Button("Save filtering settings") {
-                    saveSettings()
-                }
+
             }
             .formStyle(.grouped)
 
@@ -77,6 +75,7 @@ struct SettingsView: View {
                 .textSelection(.enabled)
         }
         .padding(24)
+        .onChange(of: settings) { _ in saveSettings() }
         .onAppear {
             if extensionID.isEmpty, let existing = NativeHostInstaller.registeredID() {
                 extensionID = existing

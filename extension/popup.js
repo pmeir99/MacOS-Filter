@@ -21,8 +21,8 @@ async function updateUI() {
   const host = await checkNativeHost();
   if (!host.ok) {
     statusLabel.textContent = host.error || "The Mac app is not connected.";
-    toggleButton.textContent = "Connection required";
-    toggleButton.disabled = true;
+    toggleButton.textContent = enabled ? "Stop filtering" : "Connection required";
+    toggleButton.disabled = !enabled;
     return;
   }
   if (host.settings && !host.settings.enabled) {

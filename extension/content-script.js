@@ -10,6 +10,7 @@
     let stopped = false;
     const originalVisibility = new WeakMap();
     const currentURL = new WeakMap();
+    const attempts = new WeakMap();
     const overlays = new WeakMap();
     const watched = new Set();
     let observer = null;
@@ -125,6 +126,8 @@
       if (stopped || !(image instanceof HTMLImageElement) || !image.isConnected) return;
       const url = image.currentSrc || image.src;
       if (!url || currentURL.get(image) === url) return;
+      const attempt = Symbol();
+      attempts.set(image,attempt);
       currentURL.set(image, url);
       hideImage(image);
       removeOverlay(image);
@@ -133,7 +136,7 @@
         const message = {type:"filterImage", description:[image.alt,image.title,image.getAttribute("aria-label")].filter(Boolean).join(" ").slice(0,4096)};
         let result = await chrome.runtime.sendMessage(message);
         if (result?.needsPixels) {
-          if (stopped || !image.isConnected || (image.currentSrc || image.src) !== url) return;
+          if (stopped || attempts.get(image)!==attempt || !image.isConnected || (image.currentSrc || image.src) !== url) return;
           let snapshot;
           if (/^data:image\/(png|jpeg|gif|webp|avif);base64,/i.test(url)) {
             message.imageData=url.slice(url.indexOf(",")+1);
@@ -150,7 +153,7 @@
           result=await chrome.runtime.sendMessage(message);
           if (result) result.snapshot=snapshot;
         }
-        if (stopped || !image.isConnected || currentURL.get(image) !== url) return;
+        if (stopped || attempts.get(image)!==attempt || !image.isConnected || (image.currentSrc || image.src)!==url || currentURL.get(image) !== url) return;
         if (result && result.ok === true && result.settings && result.settings.enabled === false) {
           removeOverlay(image);
           delete image.dataset.macosFilterStatus;
@@ -171,7 +174,7 @@
         }
         restoreImage(image);
       } catch (error) {
-        if (!stopped && image.isConnected && currentURL.get(image) === url) {
+        if (!stopped && attempts.get(image)===attempt && image.isConnected && currentURL.get(image) === url) {
           coverOnFailure(image, error && error.message);
         }
       }
@@ -211,6 +214,7 @@
             });
           });
         } else if (record.type === "attributes" && record.target instanceof HTMLImageElement) {
+          attempts.delete(record.target);
           currentURL.delete(record.target);
           watchImage(record.target);
         }

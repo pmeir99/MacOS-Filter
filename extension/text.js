@@ -1,8 +1,10 @@
 (()=>{if(globalThis.mfText)return;globalThis.mfText=true;
-let watcher, timer;
+let watcher, timer, generation=0;
 async function apply(){
+  const version=++generation;
   clearTimeout(timer); watcher?.disconnect(); CSS.highlights.delete("mf-phrases");
   const {enabled,siteRules}=await chrome.storage.local.get(["enabled","siteRules"]);
+  if(version!==generation)return;
   const rules=FilterPolicy.parse(siteRules);
   const pattern=FilterPolicy.pattern([...rules.phrases,...rules.sitePhrases.filter(rule=>FilterPolicy.excludes(location.hostname,[rule.site])).map(rule=>rule.phrase)]);
   if(!enabled || !pattern || FilterPolicy.excludes(location.hostname,rules.excluded))return;
@@ -21,5 +23,5 @@ async function apply(){
   scan();watcher=new MutationObserver(()=>{clearTimeout(timer);timer=setTimeout(scan,75)});
   watcher.observe(document,{subtree:true,childList:true,characterData:true});
 }
-chrome.storage.onChanged.addListener(apply);apply();
+chrome.storage.onChanged.addListener((changes,area)=>{if(area==='local' && (changes.enabled || changes.siteRules))apply();});apply();
 })();
