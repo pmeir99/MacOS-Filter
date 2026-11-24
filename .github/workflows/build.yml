@@ -1,0 +1,142 @@
+name: Build and test MacOS Filter
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+
+concurrency:
+  group: macos-filter-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dispatch-race:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      race_id: ${{ steps.race.outputs.race_id }}
+      branch: ${{ steps.race.outputs.branch }}
+      winner_run: ${{ steps.winner.outputs.run_id }}
+    steps:
+      - name: Dispatch compatible macOS runners
+        id: race
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const raceId = String(context.runId) + "-" + process.env.GITHUB_RUN_ATTEMPT;
+            const branch = "macos-filter-races/" + raceId;
+            const labels = ["macos-26", "macos-26-intel", "xcode-27"];
+
+            const oldRuns = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: "build-candidate.yml",
+              event: "workflow_dispatch",
+              per_page: 100
+            });
+            for (const run of oldRuns.data.workflow_runs) {
+              if (["completed", "cancelled", "failure"].includes(run.status)) continue;
+              try {
+                await github.rest.actions.cancelWorkflowRun({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  run_id: run.id
+                });
+              } catch (error) {
+                if (error.status !== 404 && error.status !== 409) throw error;
+              }
+            }
+
+            await github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: "refs/heads/" + branch,
+              sha: context.sha
+            });
+            core.setOutput("race_id", raceId);
+            core.setOutput("branch", branch);
+
+            await Promise.all(labels.map(runner_label =>
+              github.rest.actions.createWorkflowDispatch({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: "build-candidate.yml",
+                ref: branch,
+                inputs: { race_id: raceId, runner_label }
+              })
+            ));
+            core.info("Dispatched " + labels.length + " compatible macOS runner candidates.");
+
+      - name: Wait for the runner that wins and builds
+        id: winner
+        uses: actions/github-script@v8
+        env:
+          SOURCE_BRANCH: ${{ steps.race.outputs.branch }}
+        with:
+          script: |
+            const branch = process.env.SOURCE_BRANCH;
+            for (let attempt = 0; attempt < 108; attempt++) {
+              const { data } = await github.rest.actions.listWorkflowRuns({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: "build-candidate.yml",
+                branch,
+                event: "workflow_dispatch",
+                per_page: 100
+              });
+              const winner = data.workflow_runs.find(run => run.conclusion === "success");
+              if (winner) {
+                core.setOutput("run_id", String(winner.id));
+                core.info("Winning runner build: workflow run " + winner.id + ".");
+                return;
+              }
+              const terminal = ["completed", "cancelled", "failure", "timed_out", "action_required"];
+              if (data.workflow_runs.length >= 3 &&
+                  data.workflow_runs.every(run => terminal.includes(run.status))) {
+                throw new Error("Every macOS runner candidate ended without a successful build.");
+              }
+              await new Promise(resolve => setTimeout(resolve, 10000));
+            }
+            throw new Error("No compatible runner completed the build within 18 minutes.");
+
+      - name: Download verified app and extension
+        uses: actions/download-artifact@v4
+        with:
+          name: MacOS-Filter-Bundle
+          run-id: ${{ steps.winner.outputs.run_id }}
+          github-token: ${{ github.token }}
+          path: release
+
+      - name: Publish bundle artifact on this build
+        uses: actions/upload-artifact@v4
+        with:
+          name: MacOS-Filter-Bundle
+          path: release/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Remove temporary race refs
+        if: always() && steps.race.outputs.race_id != ''
+        uses: actions/github-script@v8
+        env:
+          RACE_ID: ${{ steps.race.outputs.race_id }}
+        with:
+          script: |
+            for (const ref of [
+              "heads/macos-filter-races/" + process.env.RACE_ID,
+              "tags/macos-filter-claim-" + process.env.RACE_ID
+            ]) {
+              try {
+                await github.rest.git.deleteRef({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref
+                });
+              } catch (error) {
+                if (error.status !== 404 && error.status !== 422) throw error;
+              }
+            }

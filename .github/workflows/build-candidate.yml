@@ -1,0 +1,139 @@
+name: MacOS Filter runner candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      race_id:
+        description: Parent build race identifier
+        required: true
+        type: string
+      runner_label:
+        description: Compatible macOS runner to try
+        required: true
+        type: choice
+        options:
+          - macos-26
+          - macos-26-intel
+          - xcode-27
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  claim-test-package:
+    runs-on: ${{ inputs.runner_label }}
+    timeout-minutes: 40
+    steps:
+      - name: Atomically claim the race and cancel losing runners
+        id: claim
+        uses: actions/github-script@v8
+        env:
+          RACE_ID: ${{ inputs.race_id }}
+        with:
+          script: |
+            const raceId = process.env.RACE_ID;
+            const ref = "refs/tags/macos-filter-claim-" + raceId;
+            try {
+              await github.rest.git.createRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref,
+                sha: context.sha
+              });
+              core.setOutput("winner", "true");
+            } catch (error) {
+              if (error.status !== 422 && error.status !== 409) throw error;
+              core.setOutput("winner", "false");
+              core.info("Another compatible runner claimed the build first.");
+              return;
+            }
+
+            const branch = context.ref.replace(/^refs\/heads\//, "");
+            let candidates = [];
+            for (let attempt = 0; attempt < 10; attempt++) {
+              const { data } = await github.rest.actions.listWorkflowRuns({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: "build-candidate.yml",
+                branch,
+                event: "workflow_dispatch",
+                per_page: 100
+              });
+              candidates = data.workflow_runs;
+              if (candidates.length >= 3) break;
+              await new Promise(resolve => setTimeout(resolve, 500));
+            }
+
+            for (const run of candidates) {
+              if (run.id === context.runId || ["completed", "cancelled"].includes(run.status)) continue;
+              try {
+                await github.rest.actions.cancelWorkflowRun({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  run_id: run.id
+                });
+                core.info("Cancelled losing candidate " + run.id + ".");
+              } catch (error) {
+                if (error.status !== 404 && error.status !== 409) throw error;
+              }
+            }
+
+      - name: Stop this losing candidate
+        if: steps.claim.outputs.winner != 'true'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            await github.rest.actions.cancelWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId
+            });
+
+      - name: Check out source
+        if: steps.claim.outputs.winner == 'true'
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        if: steps.claim.outputs.winner == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Check extension syntax and run extension tests
+        if: steps.claim.outputs.winner == 'true'
+        run: |
+          set -euo pipefail
+          npm --prefix extension run check
+          npm --prefix extension test
+
+      - name: Run Swift tests with warnings as errors
+        if: steps.claim.outputs.winner == 'true'
+        run: swift test -Xswiftc -warnings-as-errors
+
+      - name: Build and package macOS app and extension
+        if: steps.claim.outputs.winner == 'true'
+        run: bash scripts/package-app.sh
+
+      - name: Verify packaged outputs
+        if: steps.claim.outputs.winner == 'true'
+        run: |
+          set -euo pipefail
+          test -d "dist/MacOS Filter.app"
+          test -x "dist/MacOS Filter.app/Contents/MacOS/MacOSFilter"
+          test -x "dist/MacOS Filter.app/Contents/MacOS/FilterHost"
+          unzip -t dist/MacOS-Filter-Chrome-Extension.zip
+          unzip -t dist/MacOS-Filter-macOS.zip
+
+      - name: Upload verified app and extension
+        if: steps.claim.outputs.winner == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MacOS-Filter-Bundle
+          path: |
+            dist/MacOS-Filter-macOS.zip
+            dist/MacOS-Filter-Chrome-Extension.zip
+          if-no-files-found: error
+          retention-days: 30
