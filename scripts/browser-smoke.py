@@ -276,11 +276,12 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     harness.screenshot(path=str(output/"toolbar-dark.png"),clip=clip)
     assert ImageChops.difference(Image.open(output/"toolbar-light.png").convert("RGB"),
                                 Image.open(output/"toolbar-dark.png").convert("RGB")).getbbox()
-    popup.get_by_role("button",name="Open extension").click()
-    deadline=time.monotonic()+8
-    while worker.evaluate("async()=> (await chrome.tabs.query({active:true,currentWindow:true}))[0]?.url") != base+"/options.html":
-        assert time.monotonic()<deadline, "Open extension did not activate the settings tab"
-        time.sleep(0.05)
+    with ctx.expect_page() as opened:
+        popup.get_by_role("button",name="Open extension").click()
+    page=opened.value
+    page.wait_for_url(base+"/options.html")
+    expect(page.get_by_role("heading",name="Filter settings")).to_be_visible()
+    expect(page.locator("#fields")).to_be_enabled()
     page.bring_to_front()
     page.set_viewport_size({"width":980,"height":760})
     page.screenshot(path=str(output/"settings-light.png"))

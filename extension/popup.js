@@ -52,5 +52,5 @@ for (const [value,name] of Object.entries(FilterSettings.modeNames)) el("siteMod
 el("siteMode").onchange=e=>edit("mode",e.target.value);
 el("siteEnabled").onchange=e=>edit("enabled",e.target.checked);
 el("grant").onclick=async()=>{await chrome.permissions.request({origins:["<all_urls>"]});await refresh();};
-el("settings").onclick=()=>chrome.runtime.openOptionsPage().catch(error=>el("status").textContent=error.message);
+el("settings").onclick=()=>chrome.tabs.create({url:chrome.runtime.getURL("options.html"),active:true}).catch(error=>el("status").textContent=error.message);
 refresh().catch(error=>el("status").textContent=error.message);
