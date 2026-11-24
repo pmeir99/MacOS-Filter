@@ -68,10 +68,48 @@
     };
   };
 
+  // Image analysis is read-only, so a worker restart can safely replay it.
+  async function requestAnalysis(message, current) {
+    for (let attempt=0; ; attempt++) {
+      if (!current()) return;
+      try {
+        return await chrome.runtime.sendMessage(message);
+      } catch (error) {
+        if (attempt>=3 || !/message (?:port|channel) closed|receiving end does not exist/i.test(error.message)) throw error;
+        await new Promise(resolve=>setTimeout(resolve,150 * 2 ** attempt));
+      }
+    }
+  }
+
+  // Scope entries to one frame and settings revision. Compare the actual pixel
+  // payload so recycled URLs can never supply a verdict for different content.
+  function silhouetteCache() {
+    const entries=new Map(), budget=6*1024*1024;
+    let used=0;
+    return {
+      get(key) { return entries.get(key)?.result; },
+      put(key,result) {
+        if (!key || !result?.ok || !result.settings?.enabled || typeof result.personDetected!=="boolean" ||
+            (result.personDetected && !result.maskData) || entries.has(key)) return;
+        const size=key.length+(result.maskData?.length || 0);
+        if (size>budget) return;
+        while (used+size>budget || entries.size>=12) {
+          const oldest=entries.keys().next().value;
+          used-=entries.get(oldest).size;
+          entries.delete(oldest);
+        }
+        entries.set(key,{size,result});
+        used+=size;
+      }
+    };
+  }
+
   globalThis.MacOSFilterHelpers = Object.freeze({
     normalizeSettings,
     shouldCoverWholeImage,
     isSupportedImageURL,
-    maskGeometry
+    maskGeometry,
+    requestAnalysis,
+    silhouetteCache
   });
 })();

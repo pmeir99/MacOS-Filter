@@ -72,3 +72,31 @@ test("maps crop offsets in pixels, percentages beyond the box, and edge offsets"
   assert.equal(helpers.maskGeometry(400,400,800,400,"cover","calc(100% - 8px) 0%").left,-408);
   assert.equal(helpers.maskGeometry(400,400,800,400,"cover","unrecognized 0px"),null);
 });
+
+test("silhouette cache isolates revisions, changed bytes and failed scans",()=>{
+  const cache=helpers.silhouetteCache();
+  const clear={ok:true,personDetected:false,settings:{enabled:true}};
+  cache.put("first",clear);
+  assert.equal(cache.get("first"),clear);
+  assert.equal(cache.get("new-pixels"),undefined);
+  assert.equal(helpers.silhouetteCache().get("first"),undefined);
+  cache.put("failed",{ok:false});cache.put("incomplete",{...clear,personDetected:true});
+  assert.equal(cache.get("failed"),undefined);
+  assert.equal(cache.get("incomplete"),undefined);
+  for(let n=0;n<12;n++) cache.put(String(n),clear);
+  assert.equal(cache.get("first"),undefined);
+});
+
+test("a closed channel retries a read-only scan and stops after a source change",async()=>{
+  let calls=0;
+  const ctx={URL,setTimeout:fn=>fn(),chrome:{runtime:{sendMessage:async()=>{
+    if (++calls===1) throw Error("The message channel closed before a response was received");
+    return {ok:true};
+  }}}};
+  vm.runInNewContext(code,ctx);
+  assert.equal((await ctx.MacOSFilterHelpers.requestAnalysis({},()=>true)).ok,true);
+  assert.equal(calls,2);
+  calls=0;
+  await ctx.MacOSFilterHelpers.requestAnalysis({},()=>calls===0);
+  assert.equal(calls,1);
+});

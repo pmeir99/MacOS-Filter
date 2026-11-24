@@ -15,6 +15,7 @@
     const delays = new WeakMap();
     const overlays = new WeakMap();
     const watched = new Set();
+    const verdicts = silhouettes ? MacOSFilterHelpers.silhouetteCache() : null;
     const backgrounds = silhouettes ? PeopleBackgrounds.create() : null;
     const roots = new Map();
 
@@ -222,9 +223,11 @@
       if (silhouettes) image.dataset.macosFilterStatus="scanning";
       removeOverlay(image);
 
+      const current=()=>!stopped && image.isConnected && attempts.get(image)===attempt &&
+        (image.currentSrc || image.src)===url;
       try {
         const message = {type:"filterImage", description:[image.alt,image.title,image.getAttribute("aria-label")].filter(Boolean).join(" ").slice(0,4096)};
-        let result = silhouettes ? {needsPixels:true,personMode:true} : await chrome.runtime.sendMessage(message);
+        let result = silhouettes ? {needsPixels:true,personMode:true} : await MacOSFilterHelpers.requestAnalysis(message,current);
         if (result?.needsPixels) {
           if (stopped || attempts.get(image)!==attempt || !image.isConnected || (image.currentSrc || image.src) !== url) return;
           let snapshot;
@@ -255,7 +258,11 @@
             }
           }
           if (message.imageData?.length>11184812) throw Error("Image exceeds local transport budget.");
-          result=await chrome.runtime.sendMessage(message);
+          result=verdicts?.get(message.imageData);
+          if (!result) {
+            result=await MacOSFilterHelpers.requestAnalysis(message,current);
+            if (current()) verdicts?.put(message.imageData,result);
+          }
           if (result && !silhouettes) result.snapshot=snapshot;
         }
         if (stopped || attempts.get(image)!==attempt || !image.isConnected || (image.currentSrc || image.src)!==url || currentURL.get(image) !== url) return;
@@ -281,7 +288,7 @@
           coverOnFailure(image, result && result.error);
           return;
         }
-        result.settings = MacOSFilterHelpers.normalizeSettings(result.settings);
+        result = {...result,settings:MacOSFilterHelpers.normalizeSettings(result.settings)};
         if (result.personDetected === false) {
           removeOverlay(image);
           image.dataset.macosFilterStatus = "no-person-detected";

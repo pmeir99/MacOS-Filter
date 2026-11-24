@@ -253,7 +253,7 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     harness=ctx.new_page()
     harness.goto(base+"/blocked.html")
     sample.bring_to_front()
-    harness.evaluate("""()=>{const f=document.createElement('iframe');f.id='toolbar';f.width=336;f.height=440;f.src=chrome.runtime.getURL('popup.html');document.body.append(f)}""")
+    harness.evaluate("""()=>{const f=document.createElement('iframe');f.id='toolbar';f.style.cssText='position:fixed;inset:0 auto auto 0;width:336px;height:440px;border:0;z-index:10';f.src=chrome.runtime.getURL('popup.html');document.body.append(f)}""")
     popup=harness.frame_locator("#toolbar")
     popup.get_by_role("heading",name="127.0.0.1").wait_for()
     popup.get_by_label("Filter this site").uncheck()
@@ -268,14 +268,20 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     expect(page.locator("#profiles select")).to_have_value("entireImage")
     popup.get_by_label("What to cover").select_option("")
     expect(page.locator("#profiles select")).to_have_count(0)
-    popup.locator("main").screenshot(path=str(output/"toolbar-light.png"))
+    harness.bring_to_front()
+    height=popup.locator("main").evaluate("el=>Math.ceil(el.getBoundingClientRect().height)")
+    clip={"x":0,"y":0,"width":336,"height":height}
+    harness.screenshot(path=str(output/"toolbar-light.png"),clip=clip)
     harness.emulate_media(color_scheme="dark")
-    popup.locator("main").screenshot(path=str(output/"toolbar-dark.png"))
+    harness.screenshot(path=str(output/"toolbar-dark.png"),clip=clip)
+    assert ImageChops.difference(Image.open(output/"toolbar-light.png").convert("RGB"),
+                                Image.open(output/"toolbar-dark.png").convert("RGB")).getbbox()
     popup.get_by_role("button",name="Open extension").click()
     deadline=time.monotonic()+8
     while worker.evaluate("async()=> (await chrome.tabs.query({active:true,currentWindow:true}))[0]?.url") != base+"/options.html":
         assert time.monotonic()<deadline, "Open extension did not activate the settings tab"
         time.sleep(0.05)
+    page.bring_to_front()
     page.set_viewport_size({"width":980,"height":760})
     page.screenshot(path=str(output/"settings-light.png"))
     page.emulate_media(color_scheme="dark")

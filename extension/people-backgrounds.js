@@ -53,8 +53,8 @@ globalThis.PeopleBackgrounds = (() => {
         const bytes = await localBytes(record.url);
         if (!current()) return;
         el.dataset.macosFilterBackgroundStage="analysis";
-        const response = await chrome.runtime.sendMessage({type:"filterImage",background:true,
-          ...(bytes ? {imageData:bytes} : {thumbnail:record.url})});
+        const response = await MacOSFilterHelpers.requestAnalysis({type:"filterImage",background:true,
+          ...(bytes ? {imageData:bytes} : {thumbnail:record.url})},current);
         if (!current()) return;
         if (response?.retry) {
           setTimeout(()=>{if(current()){queue.add(el);pump();}},300);

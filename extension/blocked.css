@@ -1,0 +1,13 @@
+body {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+main.card {
+  width: min(100%, 380px);
+  padding: 28px;
+  text-align: center;
+}
+h1 { margin: 12px 0 6px; font-size: 22px; letter-spacing: -.5px; }
+p { color: var(--muted); }
