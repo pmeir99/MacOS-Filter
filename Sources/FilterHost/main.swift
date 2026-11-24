@@ -49,14 +49,13 @@ enum FilterHostMain {
 
     private static func handle(_ request: NativeRequest) -> NativeResponse {
         let settings = SettingsStore.load()
-        guard settings.enabled else {
-            return NativeResponse(requestID: request.requestID, ok: false, error: "Filtering is disabled in the Mac app.")
-        }
-
         switch request.action {
         case .getSettings:
             return NativeResponse(requestID: request.requestID, ok: true, settings: settings)
         case .segment:
+            guard settings.enabled else {
+                return NativeResponse(requestID: request.requestID, ok: false, error: "Filtering is disabled in the Mac app.")
+            }
             guard settings.mode == .allPeople,
                   let encoded = request.imageData,
                   let imageData = Data(base64Encoded: encoded) else {

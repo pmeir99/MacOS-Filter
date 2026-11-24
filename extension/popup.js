@@ -25,6 +25,13 @@ async function updateUI() {
     toggleButton.disabled = true;
     return;
   }
+  if (host.settings && !host.settings.enabled) {
+    statusLabel.textContent = "Filtering is turned off in the Mac app.";
+    toggleButton.textContent = enabled ? "Stop filtering" : "Open Mac app to enable";
+    toggleButton.classList.toggle("stop", Boolean(enabled));
+    toggleButton.disabled = !enabled;
+    return;
+  }
   statusLabel.textContent = enabled ? "Filtering is active on websites you visit." : "Filtering is turned off.";
   toggleButton.textContent = enabled ? "Stop filtering" : "Enable filtering";
   toggleButton.classList.toggle("stop", Boolean(enabled));
@@ -42,8 +49,8 @@ toggleButton.addEventListener("click", async () => {
       statusLabel.textContent = "Website access was not granted.";
     } else {
       const host = await checkNativeHost();
-      if (!host.ok) {
-        statusLabel.textContent = host.error || "The Mac app is not connected.";
+      if (!host.ok || !host.settings || !host.settings.enabled) {
+        statusLabel.textContent = host.error || "Turn on filtering in the Mac app first.";
       } else {
         await chrome.runtime.sendMessage({ type: "setEnabled", enabled: true });
       }

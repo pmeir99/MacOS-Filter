@@ -80,10 +80,11 @@ async function analyzeImage(url) {
 
 async function filterImage(url) {
   const settingsResponse = await nativeRequest("getSettings");
-  if (!settingsResponse.ok || !settingsResponse.settings || !settingsResponse.settings.enabled) {
-    throw new Error("Enable filtering in the Mac app first.");
+  if (!settingsResponse.ok || !settingsResponse.settings) {
+    throw new Error("The Mac app did not return filtering settings.");
   }
   const settings = MacOSFilterHelpers.normalizeSettings(settingsResponse.settings);
+  if (!settings.enabled) return { ok: true, settings };
   if (settings.mode === "entireImage") {
     return { ok: true, coverWholeImage: true, settings };
   }

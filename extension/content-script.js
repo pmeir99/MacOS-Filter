@@ -47,8 +47,7 @@
       overlay.style.height = rect.height + "px";
       overlay.style.display = rect.width > 0 && rect.height > 0 ? "block" : "none";
 
-      const mask = overlay.dataset.personMask === "true";
-      if (mask) {
+      if (overlay.dataset.personMask === "true") {
         const style = getComputedStyle(image);
         const geometry = MacOSFilterHelpers.maskGeometry(
           rect.width,
@@ -128,7 +127,13 @@
       try {
         const result = await chrome.runtime.sendMessage({ type: "filterImage", url });
         if (!image.isConnected || currentURL.get(image) !== url) return;
-        if (!result || !result.settings || !result.settings.enabled) {
+        if (result && result.ok === true && result.settings && result.settings.enabled === false) {
+          removeOverlay(image);
+          delete image.dataset.macosFilterStatus;
+          restoreImage(image);
+          return;
+        }
+        if (!result || !result.settings || result.ok !== true) {
           coverOnFailure(image, result && result.error);
           return;
         }
