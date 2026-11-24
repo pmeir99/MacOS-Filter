@@ -5,7 +5,7 @@ work="$2/advanced"
 mkdir -p "$work" "$resources/PolicyModels"
 python3 -m venv "$work/env"
 python="$work/env/bin/python"
-"$python" -m pip install -q numpy==1.26.4 onnxruntime==1.20.1 pillow==11.3.0 tokenizers==0.21.4 pyinstaller==6.16.0
+"$python" -m pip install -q numpy==1.26.4 onnxruntime==1.20.1 pillow==11.3.0 tokenizers==0.21.4
 clip=https://huggingface.co/Xenova/clip-vit-base-patch32/resolve/d15189d7028b43f1d3e65039190477f6af591c2a
 fetch(){ curl --fail --location --retry 3 --silent --show-error "$1" -o "$2"; }
 fetch "$clip/onnx/vision_model_quantized.onnx" "$resources/PolicyModels/vision.onnx"
@@ -18,6 +18,19 @@ cp models/notices/*.txt "$resources/PolicyModels/Notices/"
 cp "$("$python" -c 'import pathlib, onnxruntime; print(pathlib.Path(onnxruntime.__file__).parent / "LICENSE")')" "$resources/PolicyModels/Notices/ONNXRuntime-LICENSE"
 "$python" scripts/prompt-bank.py "$work" "$resources/PolicyModels"
 "$python" scripts/test-policy-routing.py "$resources/PolicyModels"
-"$python" -m PyInstaller --log-level WARN --noconfirm --clean --onefile --name PolicyWorker --distpath "$work/dist" --workpath "$work/build" --specpath "$work" --collect-binaries onnxruntime scripts/policy-worker.py
-cp "$work/dist/PolicyWorker" "$(dirname "$resources")/MacOS/PolicyWorker"
-codesign --force --sign - "$(dirname "$resources")/MacOS/PolicyWorker"
+# Python prepares the prompt embeddings during the build. Ship only the native worker and ONNX runtime.
+fetch "https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-osx-arm64-1.20.1.tgz" "$work/ort.tgz"
+tar -xzf "$work/ort.tgz" -C "$work"
+ort="$work/onnxruntime-osx-arm64-1.20.1"
+contents="$(dirname "$resources")"
+mkdir -p "$contents/Frameworks"
+lib="$contents/Frameworks/libonnxruntime.1.20.1.dylib"
+cp -L "$ort/lib/libonnxruntime.dylib" "$lib"
+chmod u+w "$lib"
+install_name_tool -id @rpath/libonnxruntime.1.20.1.dylib "$lib"
+codesign --force --sign - --timestamp=none "$lib"
+xcrun clang++ -arch arm64 -mmacosx-version-min=13.0 -O2 -std=c++17 -fobjc-arc -I"$ort/include" native/PolicyWorker.mm "$lib" \
+  -framework Foundation -framework CoreGraphics -framework ImageIO -Wl,-rpath,@executable_path/../Frameworks -o "$contents/MacOS/PolicyWorker"
+codesign --force --sign - --timestamp=none "$contents/MacOS/PolicyWorker"
+otool -L "$contents/MacOS/PolicyWorker" | grep -F '@rpath/libonnxruntime.1.20.1.dylib'
+rm "$resources/PolicyModels/prompts.npy"

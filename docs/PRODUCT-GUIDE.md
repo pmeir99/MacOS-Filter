@@ -11,7 +11,7 @@ Let the user choose an Orthodox Jewish standard and severity policy. The softwar
 Build a SwiftUI macOS app, a Chrome Manifest V3 extension, and a bundled Swift native-messaging host.
 
 - The **Chrome extension** discovers supported image elements, gates visibility while a decision is pending, and draws overlays in the original element's box.
-- The **SwiftUI app** owns user policy, settings, model configuration, connection setup, and diagnostics. Use SwiftUI and AppKit; UIKit is for iOS, not macOS.
+- The **extension options page** owns filtering policy. The **SwiftUI app** handles host registration, packaging, and software updates. Use SwiftUI and AppKit; UIKit is for iOS, not macOS.
 - The **native host** receives bounded image bytes from Chrome, safely decodes and normalizes them, runs local inference, and returns a compact action and optional mask.
 - A **provider interface** declares real capabilities: image classification, person instances, person masks, skin masks, and body-part labels. Only show controls backed by capabilities.
 - Keep all inference on the Mac. Do not send images to a server or save page images to disk by default.

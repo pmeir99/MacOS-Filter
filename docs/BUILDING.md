@@ -2,7 +2,7 @@
 
 ## Architecture
 
-Chrome discovers supported image elements and draws overlays. The Mac app stores settings and installs a Chrome Native Messaging manifest. Chrome launches the bundled FilterHost, which uses Apple Vision on this Mac. Images are not sent to a server or written to disk by this project.
+Chrome discovers supported image elements and draws overlays. Chrome stores filter settings locally. The Mac app installs a Chrome Native Messaging manifest. Chrome launches the bundled FilterHost, which uses Apple Vision on this Mac. Images are not sent to a server or written to disk by this project.
 
 The first provider uses Apple Vision person segmentation. Future Core ML providers should set compute units to all, allowing macOS to schedule supported operations on CPU, GPU, or Neural Engine. That does not guarantee that every model uses every accelerator. The macOS UI uses SwiftUI and AppKit; UIKit is not a macOS framework.
 
@@ -28,7 +28,7 @@ The package script creates an ad-hoc signature and verifies the app bundle befor
 1. Unzip MacOS-Filter-macOS.zip and move MacOS Filter.app to Applications.
 2. Open the Mac app once to register its helper. Click **Show Extension Folder**. The signed original lives in `Contents/Resources/Extension`. The app refreshes a working copy in `~/Library/Application Support/MacOSFilter/ChromeExtension` so Chrome can write its metadata safely.
 3. In Chrome, open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select that working folder. Open the extension and click **Grant Website Access**.
-4. Use the Mac app to change settings. Existing native image settings carry over. When migrating from the old separate extension, copy any website/text rules from its options page into the Mac app, then disable the old extension.
+4. Click **Filter Settings** in the extension. The first upgrade imports your existing policy, including per-site rules. Each Chrome profile then keeps its own policy. The automatic update preference applies to the installed app across profiles.
 5. For subsequent releases, choose **Software Update** in the app and **Download and Install**. The app verifies the release digest, stages the bundle, quits, swaps versions and waits for the new launch. The helper can restore the previous version if launch fails. Chrome reconnects in the background. The installed folder must be writable by your account.
 
 ## If macOS says the app is damaged

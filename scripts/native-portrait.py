@@ -15,9 +15,12 @@ photo = base64.b64encode(Path(sys.argv[2]).read_bytes()).decode()
 host = subprocess.Popen([sys.argv[1], "chrome-extension://" + "a"*32 + "/"],
                         stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 
-def request(mode, ident):
-    body = json.dumps(dict(protocolVersion=1, action="segment", requestID=ident,
-                           imageData=photo, modeOverride=mode)).encode()
+def request(mode, ident, settings=None):
+    payload = dict(protocolVersion=1, action="segment", requestID=ident, imageData=photo, modeOverride=mode)
+    if settings is not None:
+        payload.update(action="segmentWithPolicy", settings=settings)
+        del payload["modeOverride"]
+    body = json.dumps(payload).encode()
     host.stdin.write(struct.pack("<I",len(body)) + body)
     host.stdin.flush()
     size, = struct.unpack("<I",host.stdout.read(4))
@@ -54,11 +57,18 @@ finally:
 host = subprocess.Popen([sys.argv[1], "chrome-extension://" + "a"*32 + "/"],
                         stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 try:
-    skin = request("skin","skin")
+    browser = dict(enabled=True, mode="skin", overlayStyle="solid", overlayColor="#123456", opacity=1, includeFace=True)
+    skin = request("skin","skin",browser)
     alpha = Image.open(io.BytesIO(base64.b64decode(skin["maskData"]))).convert("RGBA").getchannel("A").resize((512,512))
     assert alpha.getpixel((220,108)) > 80, "skin provider missed portrait face"
     assert alpha.getpixel((500,5)) < 80, "skin provider masked background"
-    decision = request("policy","levels")
+    browser["includeFace"] = False
+    without_face = request("skin","no-face",browser)
+    other = Image.open(io.BytesIO(base64.b64decode(without_face["maskData"]))).convert("RGBA").getchannel("A").resize((512,512))
+    assert other.getpixel((220,108)) < 80, "Browser setting to exclude facial skin was ignored"
+    browser.update(mode="policy", blockThreshold=0.95, fullLevel=7)
+    decision = request("policy","levels",browser)
+    assert decision.get("coverWholeImage"), "Browser whole-image cutoff was ignored"
     assert decision.get("maskData") or decision.get("coverWholeImage")
 finally:
     host.stdin.close()

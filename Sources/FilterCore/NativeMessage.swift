@@ -5,6 +5,8 @@ public enum NativeAction: String, Codable {
     case subscribe
     case openSettings
     case segment
+    case segmentWithPolicy
+    case updatePreference
 }
 
 public struct NativeRequest: Codable {
@@ -13,6 +15,8 @@ public struct NativeRequest: Codable {
     public let action: NativeAction
     public let modeOverride: FilterMode?
     public let cutoffOverride: Double?
+    public let settings: FilterSettings?
+    public let automaticUpdates: Bool?
     public let imageData: String?
 
     public init(protocolVersion: Int = 1, requestID: String, action: NativeAction, imageData: String? = nil) {
@@ -21,13 +25,16 @@ public struct NativeRequest: Codable {
         self.action = action
         self.modeOverride = nil
         self.cutoffOverride = nil
+        self.settings = nil
+        self.automaticUpdates = nil
         self.imageData = imageData
     }
 
     public func validate() throws {
         guard protocolVersion == 1 else { throw NativeProtocolError.unsupportedVersion }
         guard !requestID.isEmpty, requestID.utf8.count <= 128 else { throw NativeProtocolError.invalidRequestID }
-        if action == .segment {
+        if action == .segmentWithPolicy && settings == nil { throw NativeProtocolError.invalidFrame }
+        if action == .segment || action == .segmentWithPolicy {
             guard let imageData, !imageData.isEmpty else { throw NativeProtocolError.missingImage }
             guard imageData.utf8.count <= 11_200_000 else { throw NativeProtocolError.messageTooLarge }
         }
@@ -39,6 +46,7 @@ public struct NativeResponse: Codable {
     public let requestID: String
     public let ok: Bool
     public var settings: FilterSettings?
+    public var automaticUpdates: Bool?
     public var maskData: String?
     public var coverWholeImage: Bool?
     public var error: String?

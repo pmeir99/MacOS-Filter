@@ -20,3 +20,4 @@ for group in labels.values():
         avg = np.mean(rows,axis=0)
         vectors.append(avg/np.linalg.norm(avg))
 np.save(output/"prompts.npy",np.stack(vectors))
+np.stack(vectors).astype("<f4").tofile(output/"prompts.f32")

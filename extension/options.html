@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MacOS Filter Settings</title><link rel="stylesheet" href="options.css"></head>
+<body><main>
+<header><img src="icons/filter-48.png" height="40" width="40" alt=""><div><p>MacOS Filter</p><h1>Settings</h1></div><output id="status" role="status"></output></header>
+<form id="controls"><fieldset disabled id="fields">
+<section><h2>Filtering</h2><div id="filter"></div></section>
+<section><h2>Mask appearance</h2><div id="render"></div><small>Risk cutoffs, blocked image descriptions, and analysis failures use an opaque black cover.</small></section>
+<section><h2>Recognition</h2><div id="recognition"></div><small>Skin, clothing levels, products, and visual presentation are estimates. Uncertain presentation matches either selection.</small></section>
+<section><h2>Websites and text</h2><small>Use one entry per line. Excluded domains include their subdomains.</small><div id="rules"></div></section>
+<section><h2>Website profiles</h2><div id="profiles"></div><button type="button" id="add">Add website profile</button></section>
+</fieldset></form>
+<section><h2>Mac helper</h2><label class="row"><span>Check for updates when the Mac app opens</span><input type="checkbox" id="updates" disabled></label>
+<button type="button" id="helper">Open Mac helper</button> <small id="helperStatus" role="status"></small></section>
+</main><script src="policy.js"></script><script src="settings.js"></script><script src="options.js"></script></body></html>

@@ -147,10 +147,20 @@ enum FilterHostMain {
     }
 
     private static func handle(_ request: NativeRequest) -> NativeResponse {
-        var settings = SettingsStore.load()
+        var settings = request.settings ?? SettingsStore.load()
         if let mode = request.modeOverride { settings.mode = mode }
         if let cutoff = request.cutoffOverride { settings.blockThreshold = min(0.95, max(0.1, cutoff)) }
         switch request.action {
+        case .updatePreference:
+            let domain = "com.pmeir99.MacOS-Filter" as CFString
+            let key = "checkForUpdatesAutomatically" as CFString
+            if let enabled = request.automaticUpdates {
+                CFPreferencesSetAppValue(key, enabled ? kCFBooleanTrue : kCFBooleanFalse, domain)
+            }
+            let saved = CFPreferencesAppSynchronize(domain)
+            var response = NativeResponse(requestID: request.requestID, ok: saved)
+            response.automaticUpdates = CFPreferencesGetAppBooleanValue(key, domain, nil)
+            return response
         case .openSettings:
             let app = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
                 .deletingLastPathComponent().deletingLastPathComponent()
@@ -160,9 +170,9 @@ enum FilterHostMain {
             return NativeResponse(requestID: request.requestID, ok: true, settings: settings)
         case .getSettings:
             return NativeResponse(requestID: request.requestID, ok: true, settings: settings)
-        case .segment:
+        case .segment, .segmentWithPolicy:
             guard settings.enabled else {
-                return NativeResponse(requestID: request.requestID, ok: false, error: "Filtering is disabled in the Mac app.")
+                return NativeResponse(requestID: request.requestID, ok: false, error: "Filtering is paused.")
             }
             if settings.mode == .entireImage {
                 return NativeResponse(requestID: request.requestID, ok: true, coverWholeImage: true)

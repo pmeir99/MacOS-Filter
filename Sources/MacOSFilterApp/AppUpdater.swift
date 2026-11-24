@@ -13,10 +13,6 @@ final class AppUpdater: ObservableObject {
     @Published private(set) var newVersion = ""
     @Published private(set) var releaseNotes = ""
     @Published var showWindow = false
-    @Published var automaticallyChecks: Bool {
-        didSet { UserDefaults.standard.set(automaticallyChecks, forKey: "checkForUpdatesAutomatically") }
-    }
-
     let currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
     private var candidate: (AppVersion, GitHubRelease.Asset)?
     private var job: Task<Void, Never>?
@@ -24,10 +20,6 @@ final class AppUpdater: ObservableObject {
     private var helper: Process?
 
     var isInstalling: Bool { [.downloading, .verifying, .installing].contains(phase) }
-
-    init() {
-        automaticallyChecks = UserDefaults.standard.object(forKey: "checkForUpdatesAutomatically") as? Bool ?? false
-    }
 
     func launched() {
         UpdateFiles.acknowledgeLaunch(arguments: CommandLine.arguments, version: currentVersion)
@@ -38,7 +30,7 @@ final class AppUpdater: ObservableObject {
             try? FileManager.default.removeItem(at: errorURL)
             phase = .failed(message)
             showWindow = true
-        } else if automaticallyChecks {
+        } else if UserDefaults.standard.bool(forKey: "checkForUpdatesAutomatically") {
             Task { await check(background: true) }
         }
     }
@@ -226,10 +218,6 @@ struct SoftwareUpdateView: View {
             }
             Divider()
             HStack {
-                Toggle("Check for updates automatically", isOn: $updater.automaticallyChecks)
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-                    .disabled(updater.isInstalling)
                 Spacer()
                 Button("Done") {
                     updater.showWindow = false

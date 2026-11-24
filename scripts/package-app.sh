@@ -78,6 +78,11 @@ codesign --verify --strict --deep "$SHIPPED"
 "$SHIPPED/Contents/Helpers/FilterUpdate" --verify "$SHIPPED" "$VERSION"
 "$SHIPPED/Contents/Helpers/FilterUpdate" --verify-archive "$ROOT/dist/MacOS-Filter-macOS.zip"
 test -s "$SHIPPED/Contents/Resources/Extension/icons/filter-128.png"
+test -s "$SHIPPED/Contents/Resources/Extension/options.html"
+test -z "$(find "$SHIPPED" -iname 'Python.framework' -o -iname '*libpython*')"
+codesign --verify --strict "$SHIPPED/Contents/Frameworks/libonnxruntime.1.20.1.dylib"
+codesign --verify --strict "$SHIPPED/Contents/MacOS/PolicyWorker"
+if otool -L "$SHIPPED/Contents/MacOS/PolicyWorker" "$SHIPPED/Contents/Frameworks/libonnxruntime.1.20.1.dylib" | grep -i python; then exit 1; fi
 cat > "$MODEL_DIR/smoke.swift" <<'SWIFT'
 import Foundation
 import Vision

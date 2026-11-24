@@ -48,5 +48,9 @@
     "32": "icons/filter-32.png",
     "48": "icons/filter-48.png",
     "128": "icons/filter-128.png"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
   }
 }

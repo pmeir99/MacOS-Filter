@@ -60,7 +60,7 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
             return {ok:true,settings:globalThis.fixtureSettings || {enabled:false}};
           }
           const {fixtureMask}=await chrome.storage.local.get('fixtureMask');
-          if (fixtureMask && action === 'segment') {
+          if (fixtureMask && action === 'segmentWithPolicy') {
             await new Promise(resolve=>setTimeout(resolve,40));
             return {ok:true,maskData:fixtureMask};
           }
@@ -191,7 +191,7 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     assert page.locator("[data-macos-filter-overlay]").count() == 0
     page.goto(base + "/popup.html")
     assert page.evaluate("chrome.storage.local.get('siteRules').then(v=>v.siteRules.profiles[0].mode)")=="entireImage"
-    page.evaluate("chrome.storage.local.set({fixtureMask:'test'})")
+    page.evaluate("mask => chrome.storage.local.set({fixtureMask:mask})",base64.b64encode(buffer.getvalue()).decode())
     sample.goto(url)
     sample.wait_for_selector("img[data-macos-filter-overlay]")
     assert not sample.locator("feImage").count()
@@ -201,5 +201,22 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     sample.wait_for_function("document.querySelectorAll('img[data-mf-reviewed]').length===97")
     assert sample.locator('img[data-macos-filter-status="blocked-local-filter-error"]').count()==0
     assert sample.locator("feImage").count()==97
+    # Verify the actual options page, per-field autosave, and restoration on reload.
+    page.goto(base+"/options.html")
+    page.get_by_label("Mask style",exact=True).select_option("blur")
+    page.wait_for_function("chrome.storage.local.get('policy').then(v=>JSON.parse(v.policy).overlayStyle==='blur')")
+    page.reload()
+    assert page.get_by_label("Mask style",exact=True).input_value()=="blur"
+    page.get_by_label("Blocked domains",exact=True).fill("bad domain")
+    page.wait_for_function("document.querySelector('#status').textContent.startsWith('Unsaved')")
+    assert page.evaluate("chrome.storage.local.get('siteRules').then(v=>v.siteRules.blocked)")=="localhost"
+    page.get_by_label("Blocked domains",exact=True).fill("localhost")
+    # A malformed PNG must fall back to opaque black even under an existing site invert filter.
+    page.evaluate("chrome.storage.local.set({fixtureMask:'bad-data'})")
+    sample.goto(url)
+    sample.locator("img").evaluate("img=>img.style.filter='invert(1)'")
+    sample.wait_for_selector('img[data-macos-filter-status="blocked-local-filter-error"]')
+    _,failed=capture("invalid-mask")
+    assert failed.getpixel((65,62))==(0,0,0) and failed.getpixel((137,75))==(0,0,0)
     ctx.close()
 server.shutdown()

@@ -58,8 +58,12 @@
         if (layer.previousContent) image.style.setProperty("content",layer.previousContent,layer.contentPriority);
         else image.style.removeProperty("content");
       }
+      if (layer.black && image.style.getPropertyValue("background-color") === layer.black) {
+        if (layer.background) image.style.setProperty("background-color", layer.background, layer.backgroundPriority);
+        else image.style.removeProperty("background-color");
+      }
       sizes.unobserve(image);
-      layer.svg.remove();
+      layer.svg?.remove();
       overlays.delete(image);
       watched.delete(image);
       image.removeAttribute("data-macos-filter-overlay");
@@ -84,6 +88,19 @@
 
     function placeOverlay(image, result) {
       removeOverlay(image);
+      const original=image.style.getPropertyValue("filter"), priority=image.style.getPropertyPriority("filter");
+      const previous=getComputedStyle(image).filter;
+      if (MacOSFilterHelpers.shouldCoverWholeImage(result) && result.settings.overlayStyle === "solid" &&
+          result.settings.opacity === 1 && result.settings.overlayColor.toLowerCase() === "#000000") {
+        const background=image.style.getPropertyValue("background-color"), backgroundPriority=image.style.getPropertyPriority("background-color");
+        image.style.setProperty("background-color","#000","important");
+        image.style.setProperty("filter","brightness(0)","important");
+        overlays.set(image,{original,priority,applied:image.style.getPropertyValue("filter"),background,backgroundPriority,
+          black:image.style.getPropertyValue("background-color")});
+        watched.add(image);
+        image.setAttribute("data-macos-filter-overlay","true");
+        return;
+      }
       const id = "mf-" + Array.from(crypto.getRandomValues(new Uint32Array(4))).join("-");
       const resource = svg("svg",{width:0,height:0,"aria-hidden":"true"});
       resource.style.cssText="position:absolute!important;width:0!important;height:0!important;pointer-events:none!important";
@@ -97,12 +114,17 @@
         mask=svg("feImage",{href:"data:image/png;base64,"+result.maskData,preserveAspectRatio:"none",result:"region"});
         filter.append(mask,svg("feComposite",{in:"paint",in2:"region",operator:"in",result:"selected"}));
       }
-      filter.append(svg("feComposite",{in:partial?"selected":"paint",in2:"SourceGraphic",operator:"over"}));
+      if (partial && blur) {
+        filter.append(svg("feComposite",{in:"SourceGraphic",in2:"region",operator:"out",result:"uncovered"}),
+                      svg("feComposite",{in:"selected",in2:"uncovered",operator:"arithmetic",k2:1,k3:1}));
+      } else if (!blur) {
+        filter.append(svg("feComposite",{in:partial?"selected":"paint",in2:"SourceGraphic",operator:"over"}));
+      }
       resource.append(filter);
       document.documentElement.append(resource);
-      const original=image.style.getPropertyValue("filter"), priority=image.style.getPropertyPriority("filter");
-      const previous=getComputedStyle(image).filter;
-      image.style.setProperty("filter","url(\"#"+id+"\")"+(previous==="none"?"":" "+previous),"important");
+      const reference = new URL(location.href);
+      reference.hash = id;
+      image.style.setProperty("filter",(previous==="none"?"":previous+" ")+"url("+JSON.stringify(reference.href)+")","important");
       const previousContent=image.style.getPropertyValue("content"), contentPriority=image.style.getPropertyPriority("content");
       let frozen;
       if (partial && result.snapshot) {
@@ -186,6 +208,11 @@
           placeOverlay(image, { ...result, coverWholeImage: true });
           if (result.coverWholeImage) image.dataset.macosFilterStatus = "covered-by-fallback";
         } else {
+          // Keep the original gated if the local mask is malformed or Chrome cannot decode it.
+          const mask = new Image();
+          mask.src = "data:image/png;base64," + result.maskData;
+          await mask.decode();
+          if (stopped || attempts.get(image)!==attempt || !image.isConnected || (image.currentSrc || image.src)!==url) return;
           placeOverlay(image, result);
           delete image.dataset.macosFilterStatus;
         }
@@ -275,6 +302,12 @@
               if (image.isConnected) watchImage(image);
             });
           });
+        } else if (record.type === "attributes" && ["style","class"].includes(record.attributeName)) {
+          const target=record.target;
+          if (overlays.has(target)) setMaskGeometry(target);
+          else if (target instanceof HTMLElement && target.childElementCount) {
+            target.querySelectorAll("img[data-macos-filter-overlay]").forEach(setMaskGeometry);
+          }
         } else if (record.type === "attributes" && record.target instanceof HTMLImageElement) {
           attempts.delete(record.target);
           currentURL.delete(record.target);
@@ -286,7 +319,7 @@
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ["src", "srcset","alt","title","aria-label"]
+      attributeFilter: ["src","srcset","alt","title","aria-label","style","class"]
     });
     scan(document);
     // Initial on-screen images gate the page. Later images keep individual placeholders.
