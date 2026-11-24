@@ -33,7 +33,13 @@ class Fixture(BaseHTTPRequestHandler):
             return
         self.send_header("Content-Type", "text/html")
         self.end_headers()
-        self.wfile.write((fixture.replace(photo_url,"/local-photo.png") if self.path=="/local-test" else fixture).encode())
+        page_html = fixture
+        if self.path == "/local-test":
+            page_html = fixture.replace(photo_url,"/local-photo.png")
+        if self.path == "/foreign-test":
+            foreign = f"http://localhost:{self.server.server_port}/local-photo.png"
+            page_html = fixture.replace(photo_url,foreign)
+        self.wfile.write(page_html.encode())
 
 server = ThreadingHTTPServer(("127.0.0.1", 0), Fixture)
 threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -120,6 +126,12 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     assert captured.getpixel((65,62))==(0,0,0)
     assert captured.getpixel((137,75))==a.getpixel((137,75))
     assert len(image_requests)==1, image_requests
+    sample.goto(url+"/foreign-test")
+    sample.wait_for_selector('img[data-macos-filter-status="blocked-local-filter-error"]')
+    sample.wait_for_function("document.documentElement.hasAttribute('data-mf-page-ready')")
+    _,foreign=capture("unreadable-cross-origin")
+    assert foreign.getpixel((65,62))==(0,0,0) and foreign.getpixel((137,75))==(0,0,0)
+    assert len(image_requests)==2, image_requests
     page.reload()
     page.wait_for_function("document.querySelector('#presentation').value==='loading'")
     page.evaluate("chrome.storage.local.remove('fixtureMask')")
