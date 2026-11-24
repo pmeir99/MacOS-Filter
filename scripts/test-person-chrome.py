@@ -245,7 +245,7 @@ with tempfile.TemporaryDirectory() as temp, sync_playwright() as pw:
                       for(const img of area.children){
                         if(!img.hasAttribute('data-mf-reviewed') || img.dataset.timed) continue;
                         const expected=img.alt==='portrait'?'people-masked':'no-person-detected';
-                        if(img.dataset.macosFilterStatus!==expected){clearTimeout(timer);watch.disconnect();reject(Error(img.dataset.macosFilterStatus));return;}
+                        if(img.dataset.macosFilterStatus!==expected){clearTimeout(timer);watch.disconnect();reject(Error([img.alt,img.dataset.macosFilterStatus,img.dataset.macosFilterReason,img.complete,img.naturalWidth,img.currentSrc].join(" | ")));return;}
                         img.dataset.timed='yes';elapsed.push(performance.now()-begin);
                       }
                       if(elapsed.length===24){clearTimeout(timer);watch.disconnect();requestAnimationFrame(()=>requestAnimationFrame(resolve));}

@@ -90,28 +90,7 @@ jobs:
             ));
             core.info("Dispatched " + labels.length + " compatible macOS runner candidates.");
 
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - name: Exercise filtering in Chromium
-        run: |
-          python3 -m venv "$RUNNER_TEMP/mf-browser"
-          "$RUNNER_TEMP/mf-browser/bin/pip" install --quiet pillow playwright==1.55.0
-          "$RUNNER_TEMP/mf-browser/bin/playwright" install chromium
-          "$RUNNER_TEMP/mf-browser/bin/python" scripts/browser-smoke.py
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: Layout-comparison
-          path: layout-comparison/*.png
-          if-no-files-found: ignore
-
       - name: Wait for the runner that wins and builds
-        # Keep the race refs alive for packaged diagnostics even when Chromium fails.
-        # The download and publish steps still require every preceding test to succeed.
-        if: ${{ !cancelled() && steps.race.outcome == 'success' }}
         id: winner
         uses: actions/github-script@v8
         env:
@@ -136,6 +115,14 @@ jobs:
                 core.info("Winning runner build: workflow run " + winner.id + ".");
                 return;
               }
+              // A cancelled sibling may disappear from the API. Detect failure of
+              // the actual builder without waiting for three terminal rows.
+              for (const run of data.workflow_runs.filter(r => ["failure","timed_out"].includes(r.conclusion))) {
+                const {data: jobs} = await github.rest.actions.listJobsForWorkflowRun({...context.repo,run_id:run.id});
+                if (jobs.jobs.some(job => job.steps?.some(step =>
+                    step.name === "Check out source" && step.conclusion && step.conclusion !== "skipped")))
+                  throw new Error("The winning macOS runner failed: "+run.html_url);
+              }
               const terminal = ["completed", "cancelled", "failure", "timed_out", "action_required"];
               if (data.workflow_runs.length >= 3 &&
                   data.workflow_runs.every(run => terminal.includes(run.status))) {
@@ -144,26 +131,6 @@ jobs:
               await new Promise(resolve => setTimeout(resolve, 10000));
             }
             throw new Error("No compatible runner completed the build within 50 minutes.");
-
-      - name: Download verified application
-        uses: actions/download-artifact@v4
-        with:
-          name: MacOS-Filter-Bundle
-          run-id: ${{ steps.winner.outputs.run_id }}
-          github-token: ${{ github.token }}
-          path: release
-
-      - name: Publish verified application to GitHub Releases
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: v0.4.${{ github.run_number }}
-        run: |
-          set -euo pipefail
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release view "$TAG" --json assets --jq '.assets[].digest' | grep -Fx "sha256:$(sha256sum release/MacOS-Filter-macOS.zip | cut -d' ' -f1)"
-          else
-            gh release create "$TAG" release/MacOS-Filter-macOS.zip --target "$GITHUB_SHA" --title "MacOS Filter ${TAG#v}" --generate-notes --latest
-          fi
 
       - name: Remove temporary race refs
         if: always() && steps.race.outputs.race_id != ''
@@ -186,6 +153,58 @@ jobs:
                 if (error.status !== 404 && error.status !== 422) throw error;
               }
             }
+
+  browser-checks:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Exercise filtering in Chromium
+        run: |
+          python3 -m venv "$RUNNER_TEMP/mf-browser"
+          "$RUNNER_TEMP/mf-browser/bin/pip" install --quiet pillow playwright==1.55.0
+          "$RUNNER_TEMP/mf-browser/bin/playwright" install chromium
+          mkdir -p layout-comparison
+          set -o pipefail
+          "$RUNNER_TEMP/mf-browser/bin/python" -u scripts/browser-smoke.py 2>&1 | tee layout-comparison/chromium.log
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Layout-comparison
+          path: layout-comparison/
+          if-no-files-found: ignore
+
+  release:
+    needs: [dispatch-race, browser-checks]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download verified application
+        uses: actions/download-artifact@v4
+        with:
+          name: MacOS-Filter-Bundle
+          run-id: ${{ needs.dispatch-race.outputs.winner_run }}
+          github-token: ${{ github.token }}
+          path: release
+
+      - name: Publish verified application to GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v0.4.${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release view "$TAG" --json assets --jq '.assets[].digest' | grep -Fx "sha256:$(sha256sum release/MacOS-Filter-macOS.zip | cut -d' ' -f1)"
+          else
+            gh release create "$TAG" release/MacOS-Filter-macOS.zip --target "$GITHUB_SHA" --title "MacOS Filter ${TAG#v}" --generate-notes --latest
+          fi
 
   claim-test-package:
     if: startsWith(github.ref_name, 'macos-filter-races/') && inputs.race_id != ''
