@@ -37,6 +37,16 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     cfg = json.loads(manifest.read_text())
     cfg["host_permissions"] = cfg.pop("optional_host_permissions")
     manifest.write_text(json.dumps(cfg))
+    # Supply a deterministic native response for mask alignment only. The first
+    # comparison still runs against the real disconnected-host fallback.
+    sw_file=extension / "service-worker.js"
+    sw_file.write_text(sw_file.read_text().replace("function nativeRequest(action, imageData) {",
+        """async function nativeRequest(action, imageData) {
+          const {fixtureMask}=await chrome.storage.local.get('fixtureMask');
+          if (fixtureMask) return action === 'getSettings'
+            ? {ok:true,settings:{enabled:true,mode:'allPeople',opacity:1,overlayColor:'#000000',overlayStyle:'solid'}}
+            : {ok:true,maskData:fixtureMask};
+        """))
     ctx = pw.chromium.launch_persistent_context(str(Path(tmp) / "profile"), channel="chromium",
         args=[f"--disable-extensions-except={extension}", f"--load-extension={extension}"])
     worker = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
@@ -77,6 +87,21 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     bounds=tuple(round(v) for v in (box["x"],box["y"],box["x"]+box["width"],box["y"]+box["height"]))
     assert delta.crop(bounds).getbbox() is None
     sample.locator("button").click()
+    mask=Image.new("RGBA",(160,90),(0,0,0,0))
+    mask.paste((255,255,255,255),(0,0,80,90))
+    buffer=BytesIO()
+    mask.save(buffer,format="PNG")
+    page.evaluate("mask => chrome.storage.local.set({fixtureMask:mask})",base64.b64encode(buffer.getvalue()).decode())
+    sample.reload()
+    sample.wait_for_selector("img[data-macos-filter-overlay]")
+    # The test mask covers the left half after the image is center-cropped.
+    partial_boxes,partial=capture("partial")
+    assert partial_boxes == before
+    assert partial.getpixel((65,62)) == (0,0,0)
+    assert partial.getpixel((137,75)) == a.getpixel((137,75))
+    assert ImageChops.difference(a,partial).crop(bounds).getbbox() is None
+    page.evaluate("chrome.storage.local.remove('fixtureMask')")
+
     enable(False)
     sample.wait_for_selector("img[data-macos-filter-overlay]",state="detached")
     restored,c=capture("restored")
