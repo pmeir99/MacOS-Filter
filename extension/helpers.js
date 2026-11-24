@@ -27,22 +27,15 @@
     }
   };
 
-  const positionFactor = value => {
-    const token = (value || "50%").trim().toLowerCase();
+  // Chromium serializes edge offsets as pixels or simple percentage +/- pixel calc().
+  const offset = (token, space) => {
+    if (token === "center") return space/2;
     if (token === "left" || token === "top") return 0;
-    if (token === "right" || token === "bottom") return 1;
-    if (token === "center") return 0.5;
-    if (token.endsWith("%")) {
-      const percent = Number.parseFloat(token);
-      return Number.isFinite(percent) ? Math.max(0, Math.min(1, percent / 100)) : 0.5;
-    }
-    return 0.5;
-  };
-
-  const objectPositionFactors = value => {
-    const tokens = (value || "50% 50%").trim().split(/\s+/);
-    if (tokens.length === 1) tokens.push("50%");
-    return [positionFactor(tokens[0]), positionFactor(tokens[1])];
+    if (token === "right" || token === "bottom") return space;
+    if (/^-?[\d.]+%$/.test(token)) return space*parseFloat(token)/100;
+    if (/^-?[\d.]+px$/.test(token)) return parseFloat(token);
+    const calc = /^calc\(\s*(-?[\d.]+)%\s*([+-])\s*([\d.]+)px\s*\)$/.exec(token);
+    return calc ? space*Number(calc[1])/100 + (calc[2]==="-"?-1:1)*Number(calc[3]) : NaN;
   };
 
   const maskGeometry = (boxWidth, boxHeight, imageWidth, imageHeight, fit, position) => {
@@ -62,12 +55,15 @@
     }
     const maskWidth = mode === "fill" ? boxWidth : imageWidth * scaleX;
     const maskHeight = mode === "fill" ? boxHeight : imageHeight * scaleY;
-    const factors = objectPositionFactors(position);
+    let tokens = String(position || "50% 50%").match(/calc\([^)]*\)|[^\s]+/g) || [];
+    if(tokens.length === 1) tokens = ["top","bottom"].includes(tokens[0]) ? ["center",tokens[0]] : [tokens[0],"center"];
+    if(tokens.length !== 2) return null;
+    const left=offset(tokens[0],boxWidth-maskWidth), top=offset(tokens[1],boxHeight-maskHeight);
+    if(!Number.isFinite(left) || !Number.isFinite(top)) return null;
     return {
       width: maskWidth,
       height: maskHeight,
-      left: (boxWidth - maskWidth) * factors[0],
-      top: (boxHeight - maskHeight) * factors[1]
+      left, top
     };
   };
 

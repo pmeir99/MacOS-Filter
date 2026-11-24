@@ -73,7 +73,11 @@
       const width = image.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
       const height = image.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
       const g = MacOSFilterHelpers.maskGeometry(width,height,image.naturalWidth,image.naturalHeight,style.objectFit,style.objectPosition);
-      if (!g) return;
+      if (!g) {
+        // A hidden/zero-size image may become visible later, at which point resize reruns.
+        if (width > 0 && height > 0) coverOnFailure(image, "Unsupported image crop.");
+        return;
+      }
       for (const [key,value] of Object.entries({x:x+g.left,y:y+g.top,width:g.width,height:g.height})) layer.mask.setAttribute(key,value);
     }
 

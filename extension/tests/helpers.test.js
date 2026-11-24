@@ -65,3 +65,10 @@ test("fits person masks to contain and cover image layouts", () => {
   const invalid = helpers.maskGeometry(0, 400, 800, 400, "contain", "center");
   assert.equal(invalid, null);
 });
+
+test("maps crop offsets in pixels, percentages beyond the box, and edge offsets",()=>{
+  assert.equal(helpers.maskGeometry(400,400,800,400,"cover","10px 0px").left,10);
+  assert.equal(helpers.maskGeometry(400,400,800,400,"cover","110% 50%").left,-440);
+  assert.equal(helpers.maskGeometry(400,400,800,400,"cover","calc(100% - 8px) 0%").left,-408);
+  assert.equal(helpers.maskGeometry(400,400,800,400,"cover","unrecognized 0px"),null);
+});

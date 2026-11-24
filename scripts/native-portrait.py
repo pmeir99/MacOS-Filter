@@ -5,6 +5,9 @@ import json
 import struct
 import subprocess
 import sys
+import time
+import statistics
+import resource
 from pathlib import Path
 from PIL import Image
 
@@ -24,16 +27,24 @@ def request(mode, ident):
 
 try:
     for mode in ("faces","allPeople"):
+        start = time.perf_counter()
         first = request(mode,mode)
+        uncached_ms = (time.perf_counter()-start)*1000
         mask = Image.open(io.BytesIO(base64.b64decode(first["maskData"]))).convert("RGBA")
         alpha = mask.getchannel("A").resize((512,512))
         assert alpha.getpixel((222,110)) > 140, (mode,"missed face center")
         assert alpha.getpixel((500,5)) < 100, (mode,"covered background")
         if mode == "faces":
             assert alpha.getpixel((175,300)) < 100, "Face mode covered torso"
-        repeat = request(mode,mode+"-repeat")
-        assert repeat["maskData"] == first["maskData"]
+        warm_ms = []
+        for iteration in range(10):
+            start = time.perf_counter()
+            repeat = request(mode,mode+str(iteration))
+            warm_ms.append((time.perf_counter()-start)*1000)
+            assert repeat["maskData"] == first["maskData"]
+        print(f"{mode}: first {uncached_ms:.1f} ms, cached median {statistics.median(warm_ms):.1f} ms",flush=True)
     assert request("entireImage","full")["coverWholeImage"]
 finally:
     host.stdin.close()
     host.wait(timeout=15)
+    print(f'Peak child RSS {resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss / 1048576:.1f} MiB')
