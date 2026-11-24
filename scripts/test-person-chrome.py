@@ -196,7 +196,13 @@ with tempfile.TemporaryDirectory() as temp, sync_playwright() as pw:
             for selector in ["#subject","#inside","#pair"]:
                 page.wait_for_selector(selector+'[data-macos-filter-status="people-masked"]',timeout=45000)
             page.wait_for_selector('#still[data-macos-filter-status="no-person-detected"]')
-            page.wait_for_selector('#bg[data-macos-filter-background="people-masked"]')
+            try:
+                page.wait_for_selector('#bg[data-macos-filter-background="people-masked"]')
+            except Exception:
+                print("Background scan:",page.locator("#bg").evaluate("""el=>({state:el.dataset.macosFilterBackground,reason:el.dataset.macosFilterBackgroundReason,css:getComputedStyle(el).backgroundImage.slice(0,240),src:el.getAttribute('style')?.slice(0,240)})"""),flush=True)
+                print("Image verdicts:",page.locator("img").evaluate_all("imgs=>imgs.map(i=>[i.id,i.dataset.macosFilterStatus,i.dataset.macosFilterReason])"),flush=True)
+                print("Requests:",requests[-24:],flush=True)
+                raise
             print(f"{domain} fixture: gallery decisions after settings save in {(time.perf_counter()-t0)*1000:.0f} ms",flush=True)
             proof=Path("silhouette-comparison");proof.mkdir(exist_ok=True)
             rendered={key:snap(key) for key in selectors}

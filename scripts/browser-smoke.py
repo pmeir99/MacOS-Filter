@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
           const {fixtureMask}=await chrome.storage.local.get('fixtureMask');
           if (fixtureMask && action === 'segmentWithPolicy') {
             await new Promise(resolve=>setTimeout(resolve,40));
-            return {ok:true,maskData:fixtureMask};
+            return {ok:true,maskData:fixtureMask,personDetected:profile?.analysis?.mode==="peopleOnly" ? true : undefined};
           }
         """))
     ctx = pw.chromium.launch_persistent_context(str(Path(tmp) / "profile"), channel="chromium",
@@ -225,5 +225,22 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     sample.wait_for_function("document.querySelector('img').style.filter==='brightness(0)'")
     page.locator("#enabled").uncheck()
     sample.wait_for_function("document.querySelector('img').style.filter==='sepia(1)'")
+    # Exercise a CSS-defined background through the actual MV3 background painter.
+    settings.update(mode="peopleOnly",enabled=True,overlayStyle="solid",overlayColor="#112233")
+    page.evaluate("mask=>chrome.storage.local.set({fixtureMask:mask})",base64.b64encode(buffer.getvalue()).decode())
+    push()
+    sample.goto(url)
+    sample.evaluate("""src=>{
+        const css=document.createElement('style');css.textContent='.class-photo{width:160px;height:90px;background-image:url("'+src+'")}';
+        const card=document.createElement('div');card.className='class-photo';document.head.append(css);document.body.append(card);
+    }""",photo_url)
+    card=sample.locator(".class-photo")
+    try:
+        sample.wait_for_selector('.class-photo[data-macos-filter-background="people-masked"]',timeout=10000)
+    except Exception:
+        print("CSS paint:",card.evaluate("el=>[el.dataset.macosFilterBackground,el.dataset.macosFilterBackgroundReason,getComputedStyle(el).backgroundImage.slice(0,80)]"),flush=True)
+        raise
+    painted=Image.open(BytesIO(card.screenshot())).convert("RGB")
+    assert painted.getpixel((32,40))==(17,34,51) and painted.getpixel((130,40))==(255,136,51)
     ctx.close()
 server.shutdown()

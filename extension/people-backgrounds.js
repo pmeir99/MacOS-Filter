@@ -24,6 +24,7 @@ globalThis.PeopleBackgrounds = (() => {
       records.delete(el); queue.delete(el);
       restore(el,record);
       delete el.dataset.macosFilterBackground;
+      delete el.dataset.macosFilterBackgroundReason;
     }
     async function localBytes(url) {
       if (/^data:image\/(?:png|jpeg|webp|avif|gif);base64,/i.test(url)) {
@@ -65,10 +66,11 @@ globalThis.PeopleBackgrounds = (() => {
           el.dataset.macosFilterBackground="people-masked";
         } else {
           restore(el,record);
+          if (response?.error) el.dataset.macosFilterBackgroundReason=response.error;
           el.dataset.macosFilterBackground=response?.ok && response.personDetected===false ? "no-person-detected" : "unscanned";
         }
-      } catch {
-        if (current()) {restore(el,record);el.dataset.macosFilterBackground="unscanned";}
+      } catch (error) {
+        if (current()) {restore(el,record);el.dataset.macosFilterBackground="unscanned";el.dataset.macosFilterBackgroundReason=error.message;}
       }
     }
     function pump() {
@@ -100,16 +102,17 @@ globalThis.PeopleBackgrounds = (() => {
       el.dataset.macosFilterBackground="scanning";
       queue.add(el);pump();
     }
-    function drainClasses(deadline) {
+    function drainClasses() {
       idle=null;
       // Inspect ordinary stylesheet backgrounds without monopolizing a feed's render tick.
+      const start=performance.now();
       let count=0;
       for (const el of classCandidates) {
         classCandidates.delete(el);
         inspect(el);
-        if (++count>=64 || deadline.timeRemaining()<2) break;
+        if (++count>=64 || performance.now()-start>=5) break;
       }
-      if (classCandidates.size) idle=requestIdleCallback(drainClasses,{timeout:150});
+      if (classCandidates.size) idle=setTimeout(drainClasses,0);
     }
     return {
       scan(root) {
@@ -118,11 +121,11 @@ globalThis.PeopleBackgrounds = (() => {
         for (const el of root.querySelectorAll?.("[class]") || []) {
           if (el instanceof HTMLElement && !el.matches(selector)) classCandidates.add(el);
         }
-        if (classCandidates.size && idle===null) idle=requestIdleCallback(drainClasses,{timeout:150});
+        if (classCandidates.size && idle===null) drainClasses();
       },
       inspect, forget,
       remove(root) {forget(root);root.querySelectorAll?.("[data-macos-filter-background]").forEach(forget);},
-      stop() {stopped=true;if(idle!==null) cancelIdleCallback(idle);classCandidates.clear();queue.clear();for (const el of records.keys()) forget(el);}
+      stop() {stopped=true;if(idle!==null) clearTimeout(idle);classCandidates.clear();queue.clear();for (const el of records.keys()) forget(el);}
     };
   }
   return {create};
