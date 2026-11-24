@@ -30,4 +30,22 @@ The Vision option is the best dependable baseline for image-wide and all-person 
 - Skin only or selected body parts: needs a pixel-level human parser or body-part segmentation model. A rectangular detector box is not an adequate skin mask.
 - Seven modesty levels: no single available model found that directly provides calibrated, consistent scores for the examples. A workable route is a local image/person classifier plus body-part/exposure detections and configurable thresholds. The definitions need to be observable labels such as explicit activity, exposed intimate anatomy, underwear/swimwear, visible skin amount, and clothing coverage. “Beach,” “tight,” and “modest” are contextual or subjective; treat them as configurable review categories rather than objective model truths.
 
+## Proposed seven-level scale for evaluation
+
+These are clearer draft definitions for a configurable rule set. They are labels to test, not claims that an off-the-shelf model can currently score them reliably.
+
+| Level | Observable definition |
+| --- | --- |
+| 1 — Explicit sexual activity | Sexual acts or explicit sexual contact |
+| 2 — Explicit nudity | Exposed genitals, anus, or buttocks; exposed breasts |
+| 3 — Underwear or lingerie | Underwear, lingerie, or implied nudity; sexualized framing can be an optional tag |
+| 4 — Swimwear or substantial exposure | Swimwear, bare torso, or substantial exposed skin; beach/pool context can be a separate optional tag |
+| 5 — Moderate exposure | Visible shoulders, upper arms, midriff, or thighs/knees |
+| 6 — Everyday covered clothing | Body covered apart from face, neck, and hands; ordinary clothing fit |
+| 7 — Full, loose coverage | Long sleeves, high neckline, covered legs, and loose fit |
+
+This keeps measurable tags (body exposure, clothing type, exposed anatomy) separate from subjective/contextual tags (sexualized framing, beach context, tightness, or modesty). The rule engine can then let the user choose which tags count and the confidence threshold for each. “Beach” should not automatically mean immodest unless the user chooses that rule.
+
+A future rule can say: if any enabled tag is at or above the selected severity threshold, cover the full image, the matched person, or the detected region. This requires both classification and, for localized painting, a matching mask. Custom rules should select outputs the installed provider actually supplies.
+
 No mode should be advertised as reliable until it is evaluated on varied images with false-negative/false-positive rates and mask alignment. The initial version therefore offers only full-image and all-person cover.
