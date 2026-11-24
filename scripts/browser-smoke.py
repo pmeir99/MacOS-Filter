@@ -70,7 +70,7 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     page.goto(base + "/rules.html")
     page.locator("#phrases").fill("example phrase")
     page.locator("#blocked").fill("localhost")
-    page.locator("button").click()
+    page.get_by_role("button",name="Save rules").click()
     page.wait_for_function("document.querySelector('output').value.startsWith('Saved')")
     def enable(value):
         result = page.evaluate("value => chrome.runtime.sendMessage({type:'setEnabled',enabled:value})",value)
@@ -125,7 +125,7 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     assert partial.getpixel((137,75)) == a.getpixel((137,75))
     assert ImageChops.difference(a,partial).crop(bounds).getbbox() is None
     page.locator("#presentation").select_option("loading")
-    page.locator("button").click()
+    page.get_by_role("button",name="Save rules").click()
     page.wait_for_function("chrome.storage.local.get('siteRules').then(v=>v.siteRules.presentation==='loading')")
     sample.goto(url+"/local-test",wait_until="domcontentloaded")
     sample.wait_for_function("getComputedStyle(document.body).opacity==='0'")
@@ -162,7 +162,7 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     page.get_by_role("textbox",name="Website",exact=True).fill("127.0.0.1")
     page.get_by_label("Image mode",exact=True).select_option("entireImage")
     page.locator("#excluded").fill("localhost")
-    page.locator("button").click()
+    page.get_by_role("button",name="Save rules").click()
     page.wait_for_function("document.querySelector('output').value.startsWith('Saved')")
     page.goto(f"http://localhost:{server.server_port}")
     assert page.locator("p").inner_text() == "example phrase"
