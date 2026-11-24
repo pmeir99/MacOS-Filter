@@ -114,6 +114,7 @@ jobs:
         env:
           SOURCE_BRANCH: ${{ steps.race.outputs.branch }}
         with:
+          retries: 3
           script: |
             const branch = process.env.SOURCE_BRANCH;
             for (let attempt = 0; attempt < 300; attempt++) {
