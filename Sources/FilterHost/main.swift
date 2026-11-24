@@ -3,6 +3,8 @@ import FilterCore
 import CoreML
 import Vision
 import ImageIO
+import CoreGraphics
+import UniformTypeIdentifiers
 
 @main
 enum FilterHostMain {
@@ -60,6 +62,35 @@ enum FilterHostMain {
         return payload
     }
 
+    // Normalize EXIF orientation before detection. Vision boxes and the mask
+    // context both use bottom-left normalized coordinates.
+    private static func faceMask(_ data: Data) throws -> Data? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: 640
+              ] as CFDictionary) else { return nil }
+        let detection = VNDetectFaceRectanglesRequest()
+        try VNImageRequestHandler(cgImage: thumbnail, options: [:]).perform([detection])
+        guard let faces = detection.results, !faces.isEmpty else { return nil }
+        let w = thumbnail.width, h = thumbnail.height
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8,
+                bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.clear(CGRect(x: 0, y: 0, width: w, height: h))
+        ctx.setFillColor(gray: 1, alpha: 1)
+        for face in faces {
+            let box = VNImageRectForNormalizedRect(face.boundingBox, w, h)
+            ctx.fill(box.insetBy(dx: -box.width * 0.12, dy: -box.height * 0.15))
+        }
+        let output = NSMutableData()
+        guard let mask = ctx.makeImage(), let destination = CGImageDestinationCreateWithData(
+            output, UTType.png.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, mask, nil)
+        return CGImageDestinationFinalize(destination) ? output as Data : nil
+    }
+
     private static func handle(_ request: NativeRequest) -> NativeResponse {
         let settings = SettingsStore.load()
         switch request.action {
@@ -97,7 +128,13 @@ enum FilterHostMain {
                         return NativeResponse(requestID: request.requestID, ok: true, coverWholeImage: true)
                     }
                 }
-                guard let mask = try provider.personMaskPNG(for: imageData) else {
+                let region: Data?
+                if settings.mode == .faces {
+                    region = try faceMask(imageData)
+                } else {
+                    region = try provider.personMaskPNG(for: imageData)
+                }
+                guard let mask = region else {
                     return NativeResponse(requestID: request.requestID, ok: true, coverWholeImage: true)
                 }
                 let maskBase64 = mask.base64EncodedString()

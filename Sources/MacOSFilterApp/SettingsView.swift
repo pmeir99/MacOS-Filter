@@ -23,6 +23,7 @@ struct SettingsView: View {
                 Toggle("Filtering enabled", isOn: $settings.enabled)
                 Picker("What to cover", selection: $settings.mode) {
                     Text("Block high NSFW scores, otherwise cover people").tag(FilterMode.adaptive)
+                    Text("Detected faces only").tag(FilterMode.faces)
                     Text("Entire image").tag(FilterMode.entireImage)
                     Text("All detected people").tag(FilterMode.allPeople)
                 }

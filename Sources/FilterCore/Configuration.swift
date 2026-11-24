@@ -2,6 +2,7 @@ import Foundation
 
 public enum FilterMode: String, Codable, CaseIterable {
     case entireImage
+    case faces
     case adaptive
     case allPeople
 }
