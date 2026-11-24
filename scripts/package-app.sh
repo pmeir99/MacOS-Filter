@@ -70,3 +70,17 @@ else { fatalError("Packaged model did not produce a valid NSFW score") }
 print("Packaged classifier inference passed")
 SWIFT
 swift "$MODEL_DIR/smoke.swift" "$SHIPPED/Contents/Resources/Nudity.mlmodelc"
+
+if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+  # A pinned public portrait is CI input only. It is never shipped or fetched by the app.
+  curl -fsSL --retry 3 'https://raw.githubusercontent.com/scikit-image/scikit-image/e8a42ba85aaf5fd9322ef9ca51bc21063b22fcae/skimage/data/astronaut.png' -o "$MODEL_DIR/portrait.png"
+  test "$(git hash-object "$MODEL_DIR/portrait.png")" = 834cda0012478c5edc8d43bade96d315dedeaab4
+  HOST="$SHIPPED/Contents/MacOS/FilterHost"
+  if [[ "$(uname -m)" != arm64 ]]; then
+    swift build --product FilterHost
+    HOST="$(swift build --show-bin-path)/FilterHost"
+  fi
+  python3 -m venv "$MODEL_DIR/qa"
+  "$MODEL_DIR/qa/bin/pip" -q install Pillow
+  "$MODEL_DIR/qa/bin/python" scripts/native-portrait.py "$HOST" "$MODEL_DIR/portrait.png"
+fi

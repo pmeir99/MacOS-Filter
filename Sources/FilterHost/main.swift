@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import FilterCore
 import CoreML
 import Vision
@@ -20,6 +21,13 @@ enum FilterHostMain {
         return try? VNCoreMLModel(for: model)
     }()
 
+    private static let maskCache: NSCache<NSString, NSString> = {
+        let cache = NSCache<NSString, NSString>()
+        cache.countLimit = 128
+        cache.totalCostLimit = 12 * 1024 * 1024
+        return cache
+    }()
+
     static func main() {
         guard let caller = CommandLine.arguments.dropFirst().first,
               caller.hasPrefix("chrome-extension://") else {
@@ -29,11 +37,13 @@ enum FilterHostMain {
 
         do {
             while let payload = try readNextPayload() {
+                try autoreleasepool {
                 let request = try JSONDecoder().decode(NativeRequest.self, from: payload)
                 try request.validate()
                 let response = handle(request)
                 let responseData = try JSONEncoder().encode(response)
                 FileHandle.standardOutput.write(try NativeMessageCodec.frame(responseData))
+                }
             }
         } catch {
             FileHandle.standardError.write(Data("Native host stopped: \(error)\n".utf8))
@@ -115,6 +125,11 @@ enum FilterHostMain {
                 )
             }
             do {
+                let digest = Data(SHA256.hash(data: imageData)).base64EncodedString()
+                let key = "\(settings.mode.rawValue)|\(settings.blockThreshold ?? 0.7)|\(digest)" as NSString
+                if let cached = maskCache.object(forKey: key) {
+                    return NativeResponse(requestID: request.requestID, ok: true, maskData: cached as String)
+                }
                 _ = try ImageInputValidator.validate(imageData)
                 guard let source = CGImageSourceCreateWithData(imageData as CFData, nil),
                       CGImageSourceGetCount(source) == 1 else {
@@ -146,6 +161,7 @@ enum FilterHostMain {
                 guard maskBase64.utf8.count < 700_000 else {
                     return NativeResponse(requestID: request.requestID, ok: false, coverWholeImage: true, error: "Mask exceeded the safe response size.")
                 }
+                maskCache.setObject(maskBase64 as NSString, forKey: key, cost: maskBase64.utf8.count)
                 return NativeResponse(requestID: request.requestID, ok: true, maskData: maskBase64)
             } catch {
                 return NativeResponse(requestID: request.requestID, ok: false, coverWholeImage: true, error: "Local image analysis failed.")
