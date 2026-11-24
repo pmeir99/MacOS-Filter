@@ -71,6 +71,17 @@ jobs:
             ));
             core.info("Dispatched " + labels.length + " compatible macOS runner candidates.");
 
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Exercise filtering in Chromium
+        run: |
+          python3 -m venv "$RUNNER_TEMP/mf-browser"
+          "$RUNNER_TEMP/mf-browser/bin/pip" install --quiet playwright==1.55.0
+          "$RUNNER_TEMP/mf-browser/bin/playwright" install chromium
+          "$RUNNER_TEMP/mf-browser/bin/python" scripts/browser-smoke.py
+
       - name: Wait for the runner that wins and builds
         id: winner
         uses: actions/github-script@v8
