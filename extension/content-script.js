@@ -184,6 +184,43 @@
       }
     }
 
+    // Keep DOM references in the backlog. Only two images per frame can hold
+    // capture buffers or wait for native inference at any time.
+    const pending = new Set();
+    const nearby = new Set();
+    let running = 0, scheduled = false;
+    const proximity = new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        if (entry.isIntersecting && pending.has(entry.target)) nearby.add(entry.target);
+        else nearby.delete(entry.target);
+      }
+      schedule();
+    }, {rootMargin: "200px"});
+    function schedule() {
+      if (scheduled || stopped || running >= 2 || !pending.size) return;
+      scheduled = true;
+      setTimeout(() => {
+        scheduled = false;
+        while (!stopped && running < 2 && pending.size) {
+          const image = nearby.values().next().value || pending.values().next().value;
+          pending.delete(image);
+          nearby.delete(image);
+          proximity.unobserve(image);
+          running++;
+          processImage(image).finally(() => { running--; schedule(); });
+        }
+      }, 0);
+    }
+    function enqueue(image) {
+      if (!image.isConnected || currentURL.get(image) === (image.currentSrc || image.src)) return;
+      hideImage(image);
+      if (!pending.has(image)) {
+        pending.add(image);
+        proximity.observe(image);
+      }
+      schedule();
+    }
+
     function watchImage(image) {
       if (!(image instanceof HTMLImageElement)) return;
       if (image.complete && image.naturalWidth === 0) {
@@ -193,11 +230,12 @@
         hideImage(image);
 
       } else {
-        processImage(image);
+        enqueue(image);
       }
     }
 
     function forget(image) {
+      pending.delete(image); nearby.delete(image); proximity.unobserve(image);
       attempts.delete(image);
       currentURL.delete(image);
       removeOverlay(image);
@@ -257,7 +295,7 @@
     // The filter moves with its image. ResizeObserver handles size changes;
     // capturing load also catches responsive candidates selected by Chrome.
     const loaded = event => {
-      if (event.target instanceof HTMLImageElement) processImage(event.target);
+      if (event.target instanceof HTMLImageElement) enqueue(event.target);
     };
     const failed = event => {
       if (event.target instanceof HTMLImageElement) coverOnFailure(event.target, "Image load failed.");
@@ -271,6 +309,7 @@
       document.documentElement?.setAttribute("data-mf-page-ready","");
       observer.disconnect();
       sizes.disconnect();
+      proximity.disconnect(); pending.clear(); nearby.clear();
       document.querySelectorAll('img').forEach(restoreImage);
       for (const image of watched) {
         removeOverlay(image);
@@ -291,9 +330,15 @@
     else if (state.stop) state.stop();
   }
 
-  chrome.storage.local.get("enabled", value => syncEnabled(Boolean(value.enabled)));
+  async function refresh() {
+    const {enabled,siteRules} = await chrome.storage.local.get(["enabled","siteRules"]);
+    const rules = FilterPolicy.parse(siteRules);
+    state.stop?.();
+    syncEnabled(enabled && !FilterPolicy.excludes(location.hostname,rules.excluded));
+  }
+  refresh();
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === "local" && changes.enabled) syncEnabled(Boolean(changes.enabled.newValue));
+    if (area === "local" && (changes.enabled || changes.siteRules || changes.policy)) refresh();
   });
   chrome.runtime.onMessage.addListener(message => {
     if (message && message.type === "disableFiltering") syncEnabled(false);

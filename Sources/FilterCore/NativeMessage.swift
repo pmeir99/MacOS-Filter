@@ -2,6 +2,8 @@ import Foundation
 
 public enum NativeAction: String, Codable {
     case getSettings
+    case subscribe
+    case openSettings
     case segment
 }
 

@@ -15,6 +15,7 @@ public enum OverlayStyle: String, Codable, CaseIterable {
 }
 
 public struct FilterSettings: Codable, Equatable {
+    public var siteRules: BrowserRules?
     public var fullLevel: Int?
     public var maskLevel: Int?
     public var products: [String]?

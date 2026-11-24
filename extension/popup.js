@@ -1,62 +1,19 @@
-const statusLabel = document.getElementById("status");
-const toggleButton = document.getElementById("toggle");
-const hostName = "com.pmeir99.macos_filter";
-
-function checkNativeHost() {
-  return new Promise(resolve => {
-    chrome.runtime.sendNativeMessage(hostName, {
-      protocolVersion: 1,
-      requestID: crypto.randomUUID(),
-      action: "getSettings"
-    }, response => {
-      const lastError = chrome.runtime.lastError;
-      if (lastError) resolve({ ok: false, error: "Open the Mac app and connect the extension ID first." });
-      else resolve(response || { ok: false, error: "The Mac app returned no status." });
-    });
-  });
+const statusLabel = document.querySelector("#status");
+const grant = document.querySelector("#grant");
+async function refresh() {
+  const access = await chrome.permissions.contains({origins:["<all_urls>"]});
+  grant.hidden = access;
+  const result = await chrome.runtime.sendMessage({type:"status"});
+  statusLabel.textContent = !result?.ok ? "Open MacOS Filter from Applications once to connect the helper."
+    : !access ? "Allow Chrome to filter websites." : result.enabled ? "Filtering on this Mac." : "Filtering is paused in Mac settings.";
 }
-
-async function updateUI() {
-  const { enabled } = await chrome.storage.local.get("enabled");
-  const host = await checkNativeHost();
-  if (!host.ok) {
-    statusLabel.textContent = host.error || "The Mac app is not connected.";
-    toggleButton.textContent = enabled ? "Stop filtering" : "Connection required";
-    toggleButton.disabled = !enabled;
-    return;
-  }
-  if (host.settings && !host.settings.enabled) {
-    statusLabel.textContent = "Filtering is turned off in the Mac app.";
-    toggleButton.textContent = enabled ? "Stop filtering" : "Open Mac app to enable";
-    toggleButton.classList.toggle("stop", Boolean(enabled));
-    toggleButton.disabled = !enabled;
-    return;
-  }
-  statusLabel.textContent = enabled ? "Filtering is active on websites you visit." : "Filtering is turned off.";
-  toggleButton.textContent = enabled ? "Stop filtering" : "Enable filtering";
-  toggleButton.classList.toggle("stop", Boolean(enabled));
-  toggleButton.disabled = false;
-}
-
-toggleButton.addEventListener("click", async () => {
-  toggleButton.disabled = true;
-  const { enabled } = await chrome.storage.local.get("enabled");
-  if (enabled) {
-    await chrome.runtime.sendMessage({ type: "setEnabled", enabled: false });
-  } else {
-    const granted = await chrome.permissions.request({ origins: ["<all_urls>"] });
-    if (!granted) {
-      statusLabel.textContent = "Website access was not granted.";
-    } else {
-      const host = await checkNativeHost();
-      if (!host.ok || !host.settings || !host.settings.enabled) {
-        statusLabel.textContent = host.error || "Turn on filtering in the Mac app first.";
-      } else {
-        await chrome.runtime.sendMessage({ type: "setEnabled", enabled: true });
-      }
-    }
-  }
-  await updateUI();
-});
-
-updateUI();
+grant.onclick = async () => {
+  await chrome.permissions.request({origins:["<all_urls>"]});
+  await refresh();
+};
+document.querySelector("#settings").onclick = async () => {
+  const result = await chrome.runtime.sendMessage({type:"openSettings"});
+  if (result?.ok) window.close();
+  else statusLabel.textContent = "Open MacOS Filter from Applications to finish setup.";
+};
+refresh();

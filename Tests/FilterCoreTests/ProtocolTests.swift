@@ -31,3 +31,25 @@ final class ProtocolTests: XCTestCase {
         XCTAssertEqual(FilterSettings(opacity: -2).opacity, 0.25)
     }
 }
+
+final class BrowserRulesTests: XCTestCase {
+    func testSettingsFromEarlierReleasesAndNewProfiles() throws {
+        let old = Data(#"{"enabled":true,"mode":"faces","overlayStyle":"solid","overlayColor":"#000000","opacity":1}"#.utf8)
+        var settings = try JSONDecoder().decode(FilterSettings.self, from: old)
+        XCTAssertNil(settings.siteRules)
+        var rules = BrowserRules()
+        rules.blocked = "Example.org\nsub.example.net"
+        rules.sitePhrases = "shop.example | test"
+        var profile = SiteProfile()
+        profile.site = "shop.example"
+        rules.profiles = [profile]
+        XCTAssertNoThrow(try rules.validate())
+        settings.siteRules = rules
+        XCTAssertEqual(try JSONDecoder().decode(FilterSettings.self, from: JSONEncoder().encode(settings)), settings)
+        rules.profiles.append(profile)
+        XCTAssertThrowsError(try rules.validate())
+        rules.profiles = []
+        rules.blocked = "*.example.org"
+        XCTAssertThrowsError(try rules.validate())
+    }
+}

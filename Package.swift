@@ -11,8 +11,10 @@ let package = Package(
     ],
     targets: [
         .target(name: "FilterCore"),
+        .target(name: "UpdateSupport"),
+        .executableTarget(name: "FilterUpdate", dependencies: ["UpdateSupport"]),
         .executableTarget(name: "FilterHost", dependencies: ["FilterCore"]),
-        .executableTarget(name: "MacOSFilterApp", dependencies: ["FilterCore"]),
+        .executableTarget(name: "MacOSFilterApp", dependencies: ["FilterCore", "UpdateSupport"]),
         .testTarget(name: "FilterCoreTests", dependencies: ["FilterCore"])
     ]
 )

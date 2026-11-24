@@ -9,16 +9,16 @@
 <body>
   <main>
     <div class="brand">
-      <div class="icon">◉</div>
+      <img src="icons/filter-48.png" width="40" height="40" alt="">
       <div>
         <h1>MacOS Filter</h1>
         <p>On-device image filtering</p>
       </div>
     </div>
     <p id="status" role="status">Checking connection…</p>
-    <button id="toggle" type="button" disabled>Loading</button>
-    <p class="permission-note">Reload open tabs after enabling filtering. Chrome needs access to the sites you visit. Image analysis runs locally in the Mac app.</p>
-  <a href="rules.html" target="_blank">Website and text rules</a></main>
+    <button id="grant" type="button" hidden>Grant Website Access</button>
+    <button id="settings" type="button">Open Mac Settings</button>
+  </main>
   <script src="popup.js"></script>
 </body>
 </html>

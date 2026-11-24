@@ -56,25 +56,31 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     sw_file=extension / "service-worker.js"
     sw_file.write_text(sw_file.read_text().replace("function nativeRequest(action, imageData, profile) {",
         """async function nativeRequest(action, imageData, profile) {
-          const {fixtureMask,fixtureBlur}=await chrome.storage.local.get(['fixtureMask','fixtureBlur']);
-          if (fixtureMask && action === 'segment') await new Promise(resolve=>setTimeout(resolve,700));
-          if (fixtureMask) return action === 'getSettings'
-            ? {ok:true,settings:{enabled:true,mode:'allPeople',opacity:1,overlayColor:'#000000',overlayStyle:fixtureBlur?'blur':'solid',blurRadius:8}}
-            : {ok:true,maskData:fixtureMask};
+          if (action === 'subscribe') {
+            return {ok:true,settings:globalThis.fixtureSettings || {enabled:false}};
+          }
+          const {fixtureMask}=await chrome.storage.local.get('fixtureMask');
+          if (fixtureMask && action === 'segment') {
+            await new Promise(resolve=>setTimeout(resolve,40));
+            return {ok:true,maskData:fixtureMask};
+          }
         """))
     ctx = pw.chromium.launch_persistent_context(str(Path(tmp) / "profile"), channel="chromium",
+        executable_path=os.environ.get("CHROMIUM_PATH"),
         args=[f"--disable-extensions-except={extension}", f"--load-extension={extension}"])
     worker = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
     page = ctx.new_page()
     base = worker.url.rsplit("/", 1)[0]
-    page.goto(base + "/rules.html")
-    page.locator("#phrases").fill("example phrase")
-    page.locator("#blocked").fill("localhost")
-    page.get_by_role("button",name="Save rules").click()
-    page.wait_for_function("document.querySelector('output').value.startsWith('Saved')")
+    page.goto(base + "/popup.html")
+    settings = {"enabled":False, "mode":"allPeople", "opacity":1, "overlayColor":"#000000",
+                "overlayStyle":"solid", "blurRadius":8,
+                "siteRules":{"phrases":"example phrase", "blocked":"localhost"}}
+    def push():
+        worker.evaluate("s => { globalThis.fixtureSettings=s; return serialize(() => applySettings(s)); }", settings)
     def enable(value):
-        result = page.evaluate("value => chrome.runtime.sendMessage({type:'setEnabled',enabled:value})",value)
-        assert result["ok"], result
+        settings["enabled"] = value
+        push()
+    push()
     sample = ctx.new_page()
     sample.set_viewport_size({"width":640,"height":240})
     url=f"http://127.0.0.1:{server.server_port}"
@@ -135,7 +141,7 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     enable(False)
     sample.locator("img").evaluate("(img,url)=>img.src=url",stripe_url)
     _,stripe_before=capture("blur-original")
-    page.evaluate("chrome.storage.local.set({fixtureBlur:true})")
+    settings["overlayStyle"]="blur"
     enable(True)
     sample.reload()
     sample.locator("img").evaluate("(img,url)=>img.src=url",stripe_url)
@@ -145,10 +151,9 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     assert high-low<40,(low,high)
     assert ImageChops.difference(blurred,stripe_before).crop((115,55,145,77)).getbbox() is None
     assert ImageChops.difference(blurred,stripe_before).crop(bounds).getbbox() is None
-    page.evaluate("chrome.storage.local.remove('fixtureBlur')")
-    page.locator("#presentation").select_option("loading")
-    page.get_by_role("button",name="Save rules").click()
-    page.wait_for_function("chrome.storage.local.get('siteRules').then(v=>v.siteRules.presentation==='loading')")
+    settings["overlayStyle"]="solid"
+    settings["siteRules"]["presentation"]="loading"
+    push()
     sample.goto(url+"/local-test",wait_until="domcontentloaded")
     sample.wait_for_function("getComputedStyle(document.body).opacity==='0'")
     sample.wait_for_function("document.documentElement.hasAttribute('data-mf-page-ready')")
@@ -164,7 +169,7 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     assert foreign.getpixel((65,62))==(0,0,0) and foreign.getpixel((137,75))==(0,0,0)
     assert len(image_requests)==2, image_requests
     page.reload()
-    page.wait_for_function("document.querySelector('#presentation').value==='loading'")
+    page.wait_for_function("chrome.storage.local.get('siteRules').then(v=>v.siteRules.presentation==='loading')")
     page.evaluate("chrome.storage.local.remove('fixtureMask')")
 
     enable(False)
@@ -179,22 +184,22 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     rect = page.locator("img").bounding_box()
     assert rect["width"] == 120 and rect["height"] == 60
     assert page.locator("[data-macos-filter-overlay]").bounding_box() == rect
-    page.goto(base + "/rules.html")
-    page.locator("#addProfile").click()
-    page.get_by_role("textbox",name="Website",exact=True).fill("127.0.0.1")
-    page.get_by_label("Image mode",exact=True).select_option("entireImage")
-    page.locator("#excluded").fill("localhost")
-    page.get_by_role("button",name="Save rules").click()
-    page.wait_for_function("document.querySelector('output').value.startsWith('Saved')")
+    settings["siteRules"].update({"profiles":[{"site":"127.0.0.1","mode":"entireImage","cutoff":0.7}],"excluded":"localhost"})
+    push()
     page.goto(f"http://localhost:{server.server_port}")
     assert page.locator("p").inner_text() == "example phrase"
     assert page.locator("[data-macos-filter-overlay]").count() == 0
-    page.goto(base + "/rules.html")
-    page.wait_for_selector("#profiles input")
-    assert page.get_by_label("Image mode",exact=True).input_value()=="entireImage"
+    page.goto(base + "/popup.html")
+    assert page.evaluate("chrome.storage.local.get('siteRules').then(v=>v.siteRules.profiles[0].mode)")=="entireImage"
     page.evaluate("chrome.storage.local.set({fixtureMask:'test'})")
     sample.goto(url)
     sample.wait_for_selector("img[data-macos-filter-overlay]")
     assert not sample.locator("feImage").count()
+    settings["siteRules"]["profiles"]=[]
+    push()
+    sample.evaluate("(src) => { for(let i=0;i<96;i++){ const img=new Image();img.src=src;document.body.append(img); } }",photo_url)
+    sample.wait_for_function("document.querySelectorAll('img[data-mf-reviewed]').length===97")
+    assert sample.locator('img[data-macos-filter-status="blocked-local-filter-error"]').count()==0
+    assert sample.locator("feImage").count()==97
     ctx.close()
 server.shutdown()

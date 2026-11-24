@@ -9,6 +9,11 @@ function getPort() {
   if (nativePort) return nativePort;
   nativePort = chrome.runtime.connectNative(HOST_NAME);
   nativePort.onMessage.addListener(message => {
+    if (message.requestID === "settingsChanged") {
+      serialize(() => applySettings(message.settings)).catch(console.error);
+      return;
+    }
+    if (message.requestID === "reloadExtension") { chrome.runtime.reload(); return; }
     const pending = inFlight.get(message.requestID);
     if (!pending) return;
     clearTimeout(pending.timeout);
@@ -20,6 +25,8 @@ function getPort() {
     const old = inFlight;
     inFlight = new Map();
     nativePort = null;
+    current = null;
+    chrome.alarms.create("helperReconnect", {delayInMinutes: 1});
     for (const pending of old.values()) {
       clearTimeout(pending.timeout);
       pending.reject(new Error(reason || "The Mac app connection closed."));
@@ -69,14 +76,11 @@ async function scheduledAnalysis(imageData, profile) {
 }
 
 async function filterImage(imageData, description, host) {
-  const settingsResponse = await nativeRequest("getSettings");
-  if (!settingsResponse.ok || !settingsResponse.settings) {
-    throw new Error("The Mac app did not return filtering settings.");
-  }
-  const settings = MacOSFilterHelpers.normalizeSettings(settingsResponse.settings);
+  if (!current) await connect();
+  if (!current) throw Error("The local helper is unavailable.");
+  const settings = MacOSFilterHelpers.normalizeSettings(current);
   if (!settings.enabled) return { ok: true, settings };
-  const {siteRules} = await chrome.storage.local.get("siteRules");
-  const rules = FilterPolicy.parse(siteRules);
+  const rules = parsed;
   const profile = rules.profiles.find(rule => FilterPolicy.excludes(host,[rule.site]));
   if (profile) settings.mode = profile.mode;
   const labels = FilterPolicy.pattern(rules.products);
@@ -91,7 +95,7 @@ async function filterImage(imageData, description, host) {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || message.type !== "filterImage") return false;
-  filterImage(message.imageData, message.description, new URL(sender.tab?.url || sender.url).hostname)
+  filterImage(message.imageData, message.description, new URL(sender.url || sender.tab?.url).hostname)
     .then(sendResponse)
     .catch(error => sendResponse({ ok: false, coverWholeImage: true, error: error.message }));
   return true;
@@ -115,17 +119,50 @@ async function configure(enabled, input) {
 }
 let queue=Promise.resolve();
 function serialize(fn){ const next=queue.then(fn); queue=next.catch(()=>{}); return next; }
-async function restore(){const {enabled,siteRules}=await chrome.storage.local.get(["enabled","siteRules"]); await configure(!!enabled,siteRules);}
-chrome.runtime.onInstalled.addListener(()=>serialize(restore));
-chrome.runtime.onStartup.addListener(()=>serialize(restore));
+let current = null;
+let parsed = FilterPolicy.parse();
+let connecting = null;
+async function applySettings(settings) {
+  const granted = await chrome.permissions.contains({origins:["<all_urls>"]});
+  const enabled = granted && settings.enabled;
+  const siteRules = settings.siteRules || {};
+  const rules = FilterPolicy.parse(siteRules);
+  const previous = await chrome.storage.local.get(["enabled","siteRules","policy"]);
+  const policy = JSON.stringify(settings);
+  await configure(enabled, siteRules);
+  parsed = rules;
+  current = settings;
+  await chrome.storage.local.set({enabled, siteRules, policy});
+  if (enabled && (!previous.enabled || previous.siteRules?.excluded !== siteRules.excluded)) {
+    const tabs = await chrome.tabs.query({url:["http://*/*","https://*/*"]});
+    await Promise.allSettled(tabs.filter(tab => !FilterPolicy.excludes(new URL(tab.url).hostname, rules.excluded)).map(async tab => {
+      const target = {tabId:tab.id, allFrames:true};
+      await chrome.scripting.insertCSS({target,files:["gate.css"]});
+      await chrome.scripting.executeScript({target,files:["helpers.js","policy.js","text.js","content-script.js"]});
+    }));
+  }
+}
+function connect() {
+  if (!connecting) connecting = (async () => {
+    const response = await nativeRequest("subscribe");
+    if (!response?.ok || !response.settings) throw Error("Open MacOS Filter once to register the helper.");
+    await serialize(() => applySettings(response.settings));
+  })().finally(() => { connecting = null; });
+  return connecting;
+}
+function start() { connect().catch(() => {}); }
+chrome.runtime.onStartup.addListener(start);
+chrome.runtime.onInstalled.addListener(start);
+chrome.alarms.onAlarm.addListener(alarm => { if (alarm.name === "helperReconnect" && !nativePort) start(); });
+chrome.permissions.onAdded.addListener(start);
+chrome.permissions.onRemoved.addListener(start);
 chrome.runtime.onMessage.addListener((message,sender,reply)=>{
-  if(!["setEnabled","saveRules"].includes(message?.type) || sender.url?.startsWith(chrome.runtime.getURL(""))!==true)return false;
-  serialize(async()=>{
-    const current=await chrome.storage.local.get(["enabled","siteRules"]);
-    const enabled=message.type==="setEnabled"?!!message.enabled:!!current.enabled;
-    const input=message.type==="saveRules"?message.input:current.siteRules;
-    await configure(enabled,input);
-    await chrome.storage.local.set({enabled,siteRules:input || {}});
-  }).then(()=>reply({ok:true}),error=>reply({ok:false,error:error.message}));
+  if (!sender.url?.startsWith(chrome.runtime.getURL(""))) return false;
+  if (message?.type === "openSettings") {
+    nativeRequest("openSettings").then(reply, error => reply({ok:false,error:error.message}));
+  } else if (message?.type === "status") {
+    connect().then(() => reply({ok:true, enabled:current?.enabled}), error => reply({ok:false,error:error.message}));
+  } else return false;
   return true;
 });
+start();

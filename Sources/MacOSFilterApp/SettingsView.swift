@@ -3,7 +3,7 @@ import FilterCore
 
 struct SettingsView: View {
     @State private var settings = SettingsStore.load()
-    @AppStorage("chromeExtensionID") private var extensionID = ""
+    @StateObject private var updater = AppUpdater()
     @State private var status = "Set up the Chrome extension to connect this Mac."
     @State private var statusIsError = false
 
@@ -63,22 +63,17 @@ struct SettingsView: View {
             }
             .formStyle(.grouped)
 
-            GroupBox("Connect Chrome") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Load the extension folder in chrome://extensions with Developer mode on, then copy its ID here.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                    TextField("32-character extension ID", text: $extensionID)
-                        .textFieldStyle(.roundedBorder)
-                        .autocorrectionDisabled()
-                    Button("Save Settings and Connect") {
-                        connect()
+            BrowserRulesView(rules: Binding(get: { settings.siteRules ?? BrowserRules() },
+                                            set: { settings.siteRules = $0 }))
+            GroupBox("Chrome") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("In chrome://extensions, enable Developer mode and choose Load unpacked. Select the folder shown below, then grant website access from the extension.")
+                    Button("Show Extension Folder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([NativeHostInstaller.extensionFolder])
                     }
-                    .buttonStyle(.borderedProminent)
                 }
-                .padding(.vertical, 4)
             }
-
+            Button("Software Update…") { updater.showWindow = true; Task { await updater.check() } }
             Text(status)
                 .font(.callout)
                 .foregroundStyle(statusIsError ? Color.red : Color.secondary)
@@ -88,15 +83,13 @@ struct SettingsView: View {
         .frame(minWidth: 480, minHeight: 490)
 
         .onChange(of: settings) { _ in saveSettings() }
-        .onAppear {
-            if extensionID.isEmpty, let existing = NativeHostInstaller.registeredID() {
-                extensionID = existing
-            }
-        }
+        .onAppear { connect(); updater.launched() }
+        .sheet(isPresented: $updater.showWindow) { SoftwareUpdateView(updater: updater) }
     }
 
     private func saveSettings() {
         do {
+            try settings.siteRules?.validate()
             try SettingsStore.save(settings)
             status = "Filtering settings saved."
             statusIsError = false
@@ -108,9 +101,9 @@ struct SettingsView: View {
 
     private func connect() {
         do {
-            try SettingsStore.save(settings)
-            let url = try NativeHostInstaller.install(extensionID: extensionID.trimmingCharacters(in: .whitespacesAndNewlines))
-            status = "Chrome host installed at \(url.path). Reload the extension in Chrome."
+            try NativeHostInstaller.prepareExtension()
+            _ = try NativeHostInstaller.install(extensionID: NativeHostInstaller.extensionID)
+            status = "Chrome helper registered."
             statusIsError = false
         } catch {
             status = error.localizedDescription

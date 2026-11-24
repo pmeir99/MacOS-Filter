@@ -3,24 +3,39 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 swift build -c release --arch arm64
+swift build -c release --arch arm64 --product FilterUpdate
 BIN="$(swift build -c release --arch arm64 --show-bin-path)"
 APP="$ROOT/dist/MacOS Filter.app"
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS"
+VERSION="${FILTER_VERSION:-0.4.0}"
+[[ "$VERSION" =~ ^0\.4\.[0-9]+$ ]]
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources/Extension"
+cp "$BIN/FilterUpdate" "$APP/Contents/Helpers/"
+cp extension/*.{js,html,css} extension/manifest.json "$APP/Contents/Resources/Extension"
+cp -R extension/icons "$APP/Contents/Resources/Extension/"
+python3 - "$APP/Contents/Resources/Extension/manifest.json" "$VERSION" <<'PYTHON'
+import json,sys
+from pathlib import Path
+path = Path(sys.argv[1])
+manifest = json.loads(path.read_text())
+manifest["version"] = sys.argv[2]
+path.write_text(json.dumps(manifest, indent=2))
+PYTHON
 cp "$BIN"/MacOSFilter "$APP/Contents/MacOS/MacOSFilter"
 cp "$BIN"/FilterHost "$APP/Contents/MacOS/FilterHost"
 chmod 755 "$APP/Contents/MacOS/MacOSFilter" "$APP/Contents/MacOS/FilterHost"
-cat > "$APP/Contents/Info.plist" <<'PLIST'
+cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+  <key>CFBundleIconFile</key><string>Filter.icns</string>
   <key>CFBundleExecutable</key><string>MacOSFilter</string>
   <key>CFBundleIdentifier</key><string>com.pmeir99.MacOS-Filter</string>
   <key>CFBundleName</key><string>MacOS Filter</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.1.0</string>
-  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleShortVersionString</key><string>$VERSION</string>
+  <key>CFBundleVersion</key><string>$VERSION</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>
@@ -30,6 +45,15 @@ PLIST
 mkdir -p "$APP/Contents/Resources"
 MODEL_DIR="$(mktemp -d)"
 trap 'rm -rf "$MODEL_DIR"' EXIT
+ICONSET="$MODEL_DIR/Filter.iconset"
+mkdir -p "$ICONSET"
+sips -s format png artwork/filter.svg --out "$MODEL_DIR/icon.png" >/dev/null
+for size in 16 32 128 256 512; do
+  sips -z "$size" "$size" "$MODEL_DIR/icon.png" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+  pixels=$((size*2))
+  sips -z "$pixels" "$pixels" "$MODEL_DIR/icon.png" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+done
+iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/Filter.icns"
 curl --fail --location --retry 3 --silent --show-error 'https://raw.githubusercontent.com/dcandre/Core-ML-After-Dark/497c388569033f5b970755a4c90a0863e72785c5/Core%20ML%20After%20Dark/PhotoSelector/Nudity.mlmodel' -o "$MODEL_DIR/Nudity.mlmodel"
 test "$(git hash-object "$MODEL_DIR/Nudity.mlmodel")" = fd69d0c03ef5458b4543b37630c48f60111562a9
 xcrun coremlcompiler compile "$MODEL_DIR/Nudity.mlmodel" "$APP/Contents/Resources"
@@ -37,18 +61,22 @@ test -d "$APP/Contents/Resources/Nudity.mlmodelc"
 bash scripts/build-policy-models.sh "$APP/Contents/Resources" "$MODEL_DIR"
 plutil -lint "$APP/Contents/Info.plist"
 # Ad-hoc signatures detect bundle corruption but do not notarize the app.
+codesign --force --sign - --timestamp=none "$APP/Contents/Helpers/FilterUpdate"
 codesign --force --sign - --timestamp=none "$APP/Contents/MacOS/FilterHost"
 codesign --force --sign - --timestamp=none "$APP/Contents/MacOS/MacOSFilter"
 codesign --force --sign - --timestamp=none "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
 mkdir -p "$ROOT/dist"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ROOT/dist/MacOS-Filter-macOS.zip"
-ditto -c -k "$ROOT/extension" "$ROOT/dist/MacOS-Filter-Chrome-Extension.zip"
+
 
 # Reopen the shipped ZIP and run the classifier on generated pixels.
 ditto -x -k "$ROOT/dist/MacOS-Filter-macOS.zip" "$MODEL_DIR/unpacked"
 SHIPPED="$MODEL_DIR/unpacked/MacOS Filter.app"
 codesign --verify --strict --deep "$SHIPPED"
+"$SHIPPED/Contents/Helpers/FilterUpdate" --verify "$SHIPPED" "$VERSION"
+"$SHIPPED/Contents/Helpers/FilterUpdate" --verify-archive "$ROOT/dist/MacOS-Filter-macOS.zip"
+test -s "$SHIPPED/Contents/Resources/Extension/icons/filter-128.png"
 cat > "$MODEL_DIR/smoke.swift" <<'SWIFT'
 import Foundation
 import Vision
@@ -81,6 +109,7 @@ if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
     swift build --product FilterHost
     HOST="$(swift build --show-bin-path)/FilterHost"
   fi
+  python3 scripts/test-settings-push.py "$HOST"
   python3 -m venv "$MODEL_DIR/qa"
   "$MODEL_DIR/qa/bin/pip" -q install Pillow
   "$MODEL_DIR/qa/bin/python" scripts/native-portrait.py "$HOST" "$MODEL_DIR/portrait.png"

@@ -1,18 +1,30 @@
 import Foundation
+import UpdateSupport
 
 enum NativeHostInstaller {
+    static let extensionID = "jepaaemencfhlepcbinpekgnpfacdlpo"
     static let hostName = "com.pmeir99.macos_filter"
 
-    static func registeredID() -> String? {
-        let file = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/Google/Chrome/NativeMessagingHosts")
-            .appendingPathComponent(hostName + ".json")
-        guard let data = try? Data(contentsOf: file),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let origins = json["allowed_origins"] as? [String],
-              let id = origins.first.flatMap({ URL(string: $0)?.host }),
-              id.range(of: "^[a-p]{32}$", options: .regularExpression) != nil else { return nil }
-        return id
+    static let extensionFolder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("MacOSFilter/ChromeExtension", isDirectory: true)
+
+    static func prepareExtension() throws {
+        let source = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/Extension")
+        let manifest = "manifest.json"
+        let fm = FileManager.default
+        let incoming = try Data(contentsOf: source.appendingPathComponent(manifest))
+        let parent = extensionFolder.deletingLastPathComponent()
+        try fm.createDirectory(at: parent, withIntermediateDirectories: true)
+        if (try? Data(contentsOf: extensionFolder.appendingPathComponent(manifest))) == incoming { return }
+        // Chrome may write metadata beside an unpacked manifest. Keep the signed bundle sealed.
+        let stage = parent.appendingPathComponent(UUID().uuidString)
+        defer { try? fm.removeItem(at: stage) }
+        try fm.copyItem(at: source, to: stage)
+        if fm.fileExists(atPath: extensionFolder.path) {
+            try UpdateTransaction.swap(extensionFolder, stage)
+        } else {
+            try fm.moveItem(at: stage, to: extensionFolder)
+        }
     }
 
     static func install(extensionID: String) throws -> URL {

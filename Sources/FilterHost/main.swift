@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import CryptoKit
 import FilterCore
 import CoreML
@@ -27,6 +28,43 @@ enum FilterHostMain {
         return cache
     }()
 
+    private static let outputLock = NSLock()
+    private static var watcher: DispatchSourceTimer?
+
+    private static func send(_ response: NativeResponse) throws {
+        let frame = try NativeMessageCodec.frame(JSONEncoder().encode(response))
+        outputLock.lock()
+        defer { outputLock.unlock() }
+        FileHandle.standardOutput.write(frame)
+    }
+
+    private static func subscribe(initial: FilterSettings) {
+        guard watcher == nil else { return }
+        var previous = initial
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "filter.preferences"))
+        timer.schedule(deadline: .now() + .milliseconds(250), repeating: .milliseconds(500), leeway: .milliseconds(100))
+        let version = installedVersion()
+        timer.setEventHandler {
+            if installedVersion() != version {
+                try? send(NativeResponse(requestID: "reloadExtension", ok: true))
+                timer.cancel()
+                return
+            }
+            let current = SettingsStore.load()
+            if previous != current {
+                previous = current
+                try? send(NativeResponse(requestID: "settingsChanged", ok: true, settings: current))
+            }
+        }
+        watcher = timer
+        timer.resume()
+    }
+
+    private static func installedVersion() -> Data? {
+        let url = SettingsStore.fileURL.deletingLastPathComponent().appendingPathComponent("ChromeExtension/manifest.json")
+        return try? Data(contentsOf: url)
+    }
+
     static func main() {
         guard let caller = CommandLine.arguments.dropFirst().first,
               caller.hasPrefix("chrome-extension://") else {
@@ -40,8 +78,7 @@ enum FilterHostMain {
                 let request = try JSONDecoder().decode(NativeRequest.self, from: payload)
                 try request.validate()
                 let response = handle(request)
-                let responseData = try JSONEncoder().encode(response)
-                FileHandle.standardOutput.write(try NativeMessageCodec.frame(responseData))
+                try send(response)
                 }
             }
         } catch {
@@ -105,6 +142,14 @@ enum FilterHostMain {
         if let mode = request.modeOverride { settings.mode = mode }
         if let cutoff = request.cutoffOverride { settings.blockThreshold = min(0.95, max(0.1, cutoff)) }
         switch request.action {
+        case .openSettings:
+            let app = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
+                .deletingLastPathComponent().deletingLastPathComponent()
+            let opened = NSWorkspace.shared.open(app)
+            return NativeResponse(requestID: request.requestID, ok: opened)
+        case .subscribe:
+            subscribe(initial: settings)
+            return NativeResponse(requestID: request.requestID, ok: true, settings: settings)
         case .getSettings:
             return NativeResponse(requestID: request.requestID, ok: true, settings: settings)
         case .segment:
@@ -127,7 +172,9 @@ enum FilterHostMain {
                 let digest = Data(SHA256.hash(data: imageData)).base64EncodedString()
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = .sortedKeys
-                let policyKey = try encoder.encode(settings).base64EncodedString()
+                var maskSettings = settings
+                maskSettings.siteRules = nil
+                let policyKey = try encoder.encode(maskSettings).base64EncodedString()
                 let key = "\(settings.mode.rawValue)|\(settings.blockThreshold ?? 0.7)|\(policyKey)|\(digest)" as NSString
                 if let cached = maskCache.object(forKey: key) {
                     return NativeResponse(requestID: request.requestID, ok: true, maskData: cached as String)

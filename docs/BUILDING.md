@@ -26,12 +26,10 @@ The package script creates an ad-hoc signature and verifies the app bundle befor
 ## Install for development
 
 1. Unzip MacOS-Filter-macOS.zip and move MacOS Filter.app to Applications.
-2. Open chrome://extensions, enable Developer mode, choose Load unpacked, and select the extracted extension folder.
-3. Copy the extension ID from its detail card.
-4. Paste the ID into the Mac app and choose Save Settings and Connect.
-5. Reload the extension. Open its popup and enable filtering.
-
-Enabling filtering asks Chrome for website access so the extension can read images from cross-origin CDNs. Filtering stays off until enabled.
+2. Open the Mac app once to register its helper. Click **Show Extension Folder**. The signed original lives in `Contents/Resources/Extension`. The app refreshes a working copy in `~/Library/Application Support/MacOSFilter/ChromeExtension` so Chrome can write its metadata safely.
+3. In Chrome, open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select that working folder. Open the extension and click **Grant Website Access**.
+4. Use the Mac app to change settings. Existing native image settings carry over. When migrating from the old separate extension, copy any website/text rules from its options page into the Mac app, then disable the old extension.
+5. For subsequent releases, choose **Software Update** in the app and **Download and Install**. The app verifies the release digest, stages the bundle, quits, swaps versions and waits for the new launch. The helper can restore the previous version if launch fails. Chrome reconnects in the background. The installed folder must be writable by your account.
 
 ## If macOS says the app is damaged
 

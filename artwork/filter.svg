@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<defs>
+ <linearGradient id="tile" x2=".8" y2="1" gradientUnits="objectBoundingBox"><stop stop-color="#47969d"/><stop offset=".54" stop-color="#205363"/><stop offset="1" stop-color="#102c40"/></linearGradient>
+ <linearGradient id="glass" x2=".4" y2="1"><stop stop-color="#e9fffa"/><stop offset=".55" stop-color="#b0e1db"/><stop offset="1" stop-color="#70b8ba"/></linearGradient>
+</defs>
+<rect x="60" y="68" width="904" height="900" rx="206" fill="#102c40" opacity=".18"/>
+<rect x="60" y="54" width="904" height="900" rx="206" fill="url(#tile)"/>
+<rect x="63" y="57" width="898" height="894" rx="203" fill="none" stroke="#a2e6d9" stroke-opacity=".38" stroke-width="6"/>
+<path d="M512 176 C586 230 689 258 782 270 V466 C782 644 666 758 512 838 C358 758 242 644 242 466 V270 C335 258 438 230 512 176Z" fill="url(#glass)"/>
+<path d="M333 474 Q512 293 691 474 Q512 655 333 474Z" fill="#245665"/>
+<circle cx="512" cy="474" r="79" fill="#b0e1db"/><circle cx="512" cy="474" r="43" fill="#265967"/>
+<path d="M414 605 L609 346" stroke="#ceece7" stroke-width="55" stroke-linecap="round"/>
+</svg>

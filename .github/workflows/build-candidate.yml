@@ -3,6 +3,9 @@ name: MacOS Filter runner candidate
 on:
   workflow_dispatch:
     inputs:
+      version:
+        required: true
+        type: string
       race_id:
         description: Parent build race identifier
         required: true
@@ -50,33 +53,19 @@ jobs:
             }
 
             const branch = context.ref.replace(/^refs\/heads\//, "");
-            let candidates = [];
-            for (let attempt = 0; attempt < 10; attempt++) {
-              const { data } = await github.rest.actions.listWorkflowRuns({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                workflow_id: "build-candidate.yml",
-                branch,
-                event: "workflow_dispatch",
-                per_page: 100
+            const cancelled = new Set();
+            for (let attempt = 0; attempt < 40 && cancelled.size < 2; attempt++) {
+              const {data} = await github.rest.actions.listWorkflowRuns({
+                ...context.repo, workflow_id: "build-candidate.yml", branch, per_page: 10
               });
-              candidates = data.workflow_runs;
-              if (candidates.length >= 3) break;
-              await new Promise(resolve => setTimeout(resolve, 500));
-            }
-
-            for (const run of candidates) {
-              if (run.id === context.runId || ["completed", "cancelled"].includes(run.status)) continue;
-              try {
-                await github.rest.actions.cancelWorkflowRun({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  run_id: run.id
-                });
-                core.info("Cancelled losing candidate " + run.id + ".");
-              } catch (error) {
-                if (error.status !== 404 && error.status !== 409) throw error;
-              }
+              await Promise.all(data.workflow_runs.filter(run => run.id !== context.runId && !cancelled.has(run.id)).map(async run => {
+                if (run.status !== "completed") {
+                  try { await github.rest.actions.cancelWorkflowRun({...context.repo, run_id: run.id}); }
+                  catch (error) { if (![404,409].includes(error.status)) throw error; }
+                }
+                cancelled.add(run.id);
+              }));
+              if (cancelled.size < 2) await new Promise(resolve => setTimeout(resolve, 500));
             }
 
       - name: Stop this losing candidate
@@ -121,6 +110,8 @@ jobs:
 
       - name: Build and package macOS app and extension
         if: steps.claim.outputs.winner == 'true'
+        env:
+          FILTER_VERSION: ${{ inputs.version }}
         run: bash scripts/package-app.sh
 
       - name: Verify packaged outputs
@@ -130,7 +121,7 @@ jobs:
           test -d "dist/MacOS Filter.app"
           test -x "dist/MacOS Filter.app/Contents/MacOS/MacOSFilter"
           test -x "dist/MacOS Filter.app/Contents/MacOS/FilterHost"
-          unzip -t dist/MacOS-Filter-Chrome-Extension.zip
+          test -f "dist/MacOS Filter.app/Contents/Resources/Extension/manifest.json"
           unzip -t dist/MacOS-Filter-macOS.zip
 
       - name: Upload verified app and extension
@@ -140,6 +131,5 @@ jobs:
           name: MacOS-Filter-Bundle
           path: |
             dist/MacOS-Filter-macOS.zip
-            dist/MacOS-Filter-Chrome-Extension.zip
           if-no-files-found: error
           retention-days: 30
