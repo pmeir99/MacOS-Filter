@@ -11,6 +11,7 @@
     const originalVisibility = new WeakMap();
     const currentURL = new WeakMap();
     const attempts = new WeakMap();
+    const decoding = new WeakMap();
     const delays = new WeakMap();
     const overlays = new WeakMap();
     const watched = new Set();
@@ -347,18 +348,34 @@
 
     function watchImage(image) {
       if (!(image instanceof HTMLImageElement)) return;
-      if (image.complete && image.naturalWidth === 0) {
-        hideImage(image);
-        coverOnFailure(image, "Image could not be decoded.");
-      } else if (!image.complete || image.naturalWidth === 0) {
-        hideImage(image);
-
-      } else {
+      if (image.complete && image.naturalWidth>0) {
         enqueue(image);
+        return;
       }
+      hideImage(image);
+      const url=image.currentSrc || image.getAttribute("src");
+      // A dynamically inserted img may briefly be complete before the browser
+      // has selected or decoded its candidate. Let load/error settle that state.
+      if (!silhouettes && image.complete) {coverOnFailure(image,"Image could not be decoded.");return;}
+      if (!url && !image.srcset && !image.parentElement?.matches("picture")) {
+        removeOverlay(image);
+        delete image.dataset.macosFilterStatus;
+        restoreImage(image);
+        return;
+      }
+      if (!url || !image.complete || decoding.get(image)===url) return;
+      decoding.set(image,url);
+      const current=()=>!stopped && image.isConnected && decoding.get(image)===url &&
+        (image.currentSrc || image.getAttribute("src"))===url;
+      image.decode().then(()=>{
+        if (current() && image.naturalWidth) enqueue(image);
+      },()=>{
+        if (current() && image.complete && !image.naturalWidth) coverOnFailure(image,"Image could not be decoded.");
+      }).finally(()=>{if(decoding.get(image)===url) decoding.delete(image);});
     }
 
     function forget(image) {
+      decoding.delete(image);
       pending.delete(image); nearby.delete(image); proximity.unobserve(image);
       attempts.delete(image);
       currentURL.delete(image);

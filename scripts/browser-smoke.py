@@ -1,7 +1,7 @@
-import os, shutil, tempfile, threading, json
+import os, shutil, tempfile, threading, json, re, time
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, expect
 
 from PIL import Image, ImageChops
 from io import BytesIO
@@ -259,20 +259,23 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     popup.get_by_label("Filter this site").uncheck()
     sample.wait_for_function("document.documentElement.hasAttribute('data-mf-paused')")
     embedded.locator("html[data-mf-paused]").wait_for(state="attached")
-    page.wait_for_function("document.getElementById('siteRules.excluded').value.includes('127.0.0.1')")
+    expect(page.get_by_label("Excluded domains")).to_have_value(re.compile(r"127\.0\.0\.1"))
     assert popup.get_by_label("What to cover").is_disabled()
     popup.get_by_label("Filter this site").check()
     sample.wait_for_function("!document.documentElement.hasAttribute('data-mf-paused')")
     embedded.locator("img[data-macos-filter-overlay]").wait_for()
     popup.get_by_label("What to cover").select_option("entireImage")
-    page.wait_for_function("Array.from(document.querySelectorAll('#profiles select')).some(s=>s.value==='entireImage')")
+    expect(page.locator("#profiles select")).to_have_value("entireImage")
     popup.get_by_label("What to cover").select_option("")
-    page.wait_for_function("!document.querySelector('#profiles select')")
+    expect(page.locator("#profiles select")).to_have_count(0)
     popup.locator("main").screenshot(path=str(output/"toolbar-light.png"))
     harness.emulate_media(color_scheme="dark")
     popup.locator("main").screenshot(path=str(output/"toolbar-dark.png"))
     popup.get_by_role("button",name="Open extension").click()
-    page.wait_for_function("chrome.tabs.query({active:true,currentWindow:true}).then(t=>t[0]?.url===location.href)")
+    deadline=time.monotonic()+8
+    while worker.evaluate("async()=> (await chrome.tabs.query({active:true,currentWindow:true}))[0]?.url") != base+"/options.html":
+        assert time.monotonic()<deadline, "Open extension did not activate the settings tab"
+        time.sleep(0.05)
     page.set_viewport_size({"width":980,"height":760})
     page.screenshot(path=str(output/"settings-light.png"))
     page.emulate_media(color_scheme="dark")

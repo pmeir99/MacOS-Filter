@@ -183,13 +183,26 @@ with tempfile.TemporaryDirectory() as temp, sync_playwright() as pw:
             def snap(selector):
                 return Image.open(BytesIO(page.locator(selector).screenshot())).convert("RGB")
             selectors=["figure","#still","#bg","#inside","#pair","figure button","#bg button"]
+            proof=Path("silhouette-comparison");proof.mkdir(exist_ok=True)
             baseline={key:snap(key) for key in selectors}
+            def check_original_figure(stage):
+                actual=snap("figure")
+                expected=baseline["figure"]
+                expected.save(proof/(domain+"-"+stage+"-before.png"))
+                actual.save(proof/(domain+"-"+stage+"-after.png"))
+                delta=ImageChops.difference(expected,actual)
+                assert not subject.get_attribute("data-macos-filter-overlay")
+                assert subject.evaluate("img=>getComputedStyle(img).filter==='none' && getComputedStyle(img).visibility==='visible'")
+                # The plain opaque photograph and button must be exact. Chrome's
+                # antialiased CSS cutout may round an 8-bit channel by one.
+                assert delta.crop((55,55,125,125)).getbbox() is None,(stage,delta.getbbox())
+                assert max(hi for lo,hi in delta.getextrema())<=1,(stage,delta.getbbox(),delta.getextrema())
             bounds={key:page.locator(key).bounding_box() for key in selectors}
             before_requests=len(requests)
             setting("publicMedia",False)
             setting("enabled",True)
-            page.wait_for_selector('#subject[data-macos-filter-status="unscanned"]')
-            assert not ImageChops.difference(baseline["figure"],snap("figure")).getbbox()
+            page.wait_for_selector('#subject[data-mf-reviewed][data-macos-filter-status="unscanned"]')
+            check_original_figure("unscanned")
             assert not any(dest=="empty" and host in ["thumb.wikimedia.org","pbs.twimg.com"]
                            for host,dest,cookie in requests[before_requests:]),"CDN read without opt-in"
             t0=time.perf_counter()
@@ -274,7 +287,7 @@ with tempfile.TemporaryDirectory() as temp, sync_playwright() as pw:
                 assert not ImageChops.difference(baseline["#still"],snap("#still")).getbbox()
             setting("enabled",False)
             page.wait_for_selector('#bg[data-macos-filter-background]',state="detached")
-            assert not ImageChops.difference(baseline["figure"],snap("figure")).getbbox()
+            check_original_figure("restored")
         print("Silhouettes passed: face, pair, background pixels, no-person, rounded clip, buttons, CSS background, shadow DOM, responsive picture, lazy image and recycled blob.",flush=True)
         ctx.close()
     finally:
