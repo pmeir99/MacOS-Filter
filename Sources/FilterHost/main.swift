@@ -3,6 +3,8 @@ import FilterCore
 
 @main
 enum FilterHostMain {
+    private static let provider = VisionPersonSegmentationProvider()
+
     static func main() {
         guard let caller = CommandLine.arguments.dropFirst().first,
               caller.hasPrefix("chrome-extension://") else {
@@ -67,7 +69,7 @@ enum FilterHostMain {
             }
             do {
                 _ = try ImageInputValidator.validate(imageData)
-                guard let mask = try VisionPersonSegmentationProvider().personMaskPNG(for: imageData) else {
+                guard let mask = try provider.personMaskPNG(for: imageData) else {
                     return NativeResponse(requestID: request.requestID, ok: true, coverWholeImage: true)
                 }
                 let maskBase64 = mask.base64EncodedString()

@@ -47,10 +47,21 @@ test("fails closed if a mask is missing or the host reports an error", () => {
   assert.equal(helpers.shouldCoverWholeImage({ ok: false, maskData: "abc" }), true);
 });
 
-test("accepts HTTP image URLs but rejects unsafe or malformed values", () => {
+test("accepts HTTP, HTTPS, and bounded data image URLs", () => {
   assert.equal(helpers.isSupportedImageURL("https://images.example/a.jpg"), true);
   assert.equal(helpers.isSupportedImageURL("http://example.com/a.png"), true);
+  assert.equal(helpers.isSupportedImageURL("data:image/png;base64,AAAA"), true);
   assert.equal(helpers.isSupportedImageURL("file:///tmp/a.png"), false);
+  assert.equal(helpers.isSupportedImageURL("blob:https://example.com/id"), false);
   assert.equal(helpers.isSupportedImageURL("javascript:alert(1)"), false);
   assert.equal(helpers.isSupportedImageURL("https://user:pass@example.com/a.jpg"), false);
+});
+
+test("fits person masks to contain and cover image layouts", () => {
+  const contain = helpers.maskGeometry(400, 400, 800, 400, "contain", "50% 50%");
+  assert.deepEqual(JSON.parse(JSON.stringify(contain)), { width: 400, height: 200, left: 0, top: 100 });
+  const cover = helpers.maskGeometry(400, 400, 800, 400, "cover", "50% 50%");
+  assert.deepEqual(JSON.parse(JSON.stringify(cover)), { width: 800, height: 400, left: -200, top: 0 });
+  const invalid = helpers.maskGeometry(0, 400, 800, 400, "contain", "center");
+  assert.equal(invalid, null);
 });

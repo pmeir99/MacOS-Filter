@@ -1,6 +1,5 @@
 import Foundation
 import CoreGraphics
-import CoreImage
 import CoreVideo
 import ImageIO
 import UniformTypeIdentifiers
@@ -21,8 +20,7 @@ public enum SegmentationError: Error {
     case maskEncodingFailed
 }
 
-/// Fast, local baseline. Vision supplies the model and can schedule work on
-/// Apple's available accelerators without shipping third-party weights.
+/// Vision schedules inference on available Apple hardware unless CPU-only mode is requested.
 public final class VisionPersonSegmentationProvider: SegmentationProvider {
     public let identifier = "apple-vision-person"
     public let capabilities: Set<ProviderCapability> = [.personMask]
@@ -34,6 +32,7 @@ public final class VisionPersonSegmentationProvider: SegmentationProvider {
         let request = VNGeneratePersonSegmentationRequest()
         request.qualityLevel = .accurate
         request.outputPixelFormat = kCVPixelFormatType_OneComponent8
+        request.usesCPUOnly = false
         let handler = VNImageRequestHandler(data: imageData, options: [:])
         try handler.perform([request])
         guard let pixelBuffer = request.results?.first?.pixelBuffer else { return nil }
@@ -70,18 +69,15 @@ public final class VisionPersonSegmentationProvider: SegmentationProvider {
             }
         }
 
-        let provider = CGDataProvider(data: rgba as CFData)
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        let bitmap = CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue).union(.byteOrder32Big)
-        guard let provider,
+        guard let provider = CGDataProvider(data: rgba as CFData),
               let image = CGImage(
                 width: width,
                 height: height,
                 bitsPerComponent: 8,
                 bitsPerPixel: 32,
                 bytesPerRow: width * 4,
-                space: colorSpace,
-                bitmapInfo: bitmap,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue).union(.byteOrder32Big),
                 provider: provider,
                 decode: nil,
                 shouldInterpolate: true,

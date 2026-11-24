@@ -2,15 +2,15 @@
 
 ## Architecture
 
-Chrome discovers images and draws overlays. The Mac app stores settings and installs a Chrome Native Messaging manifest. Chrome launches the bundled FilterHost and holds a persistent local pipe open while filtering is enabled. The host uses Vision on this Mac and returns a compact PNG mask. Image bytes are not sent to a server or written to disk by this project.
+Chrome discovers HTML image elements and renders overlays. The Mac app stores settings and installs a Chrome Native Messaging manifest. Chrome launches the bundled FilterHost and keeps a local pipe open while filtering is enabled. FilterHost uses Vision on this Mac and returns a compact PNG mask. Image bytes are not sent to a server or written to disk by this project.
 
-The Swift provider protocol isolates segmentation from the browser protocol. The first provider uses Vision person segmentation. Future Core ML providers should use MLModelConfiguration.computeUnits = .all so Core ML can select available CPU, GPU, and Neural Engine execution for a supported model. This is a request to the OS, not a guarantee that every model runs on every accelerator. The extension itself only handles page access and overlays; it does not duplicate the model in JavaScript.
+The Swift segmentation-provider boundary isolates inference from the extension protocol. The first provider uses Vision person segmentation. Future Core ML providers should request all available compute units so macOS can choose CPU, GPU, or Neural Engine execution supported by the model. This is a request to the OS, not a promise that every model runs on every accelerator. The extension handles discovery and drawing; it does not duplicate model inference in JavaScript.
 
-macOS uses SwiftUI and AppKit. UIKit is not a macOS framework. The app is designed for macOS 12 and later; an Apple Core AI/SAM 3 provider would be an optional path for supported macOS 27 systems, not a dependency of the baseline.
+macOS uses SwiftUI and AppKit. UIKit is not a macOS framework. The baseline app targets macOS 13 and later.
 
 ## Local prerequisites
 
-- macOS 12 or newer
+- macOS 13 or newer
 - Xcode command line tools and Swift 5.9+
 - Chrome 116 or newer
 - Node.js 20 or newer for extension checks
@@ -34,12 +34,12 @@ Chrome asks for access to all websites when filtering is enabled. This permits t
 
 ## Current behavior
 
-The first release supports covering the entire image or the person masks Vision detects. Blur, overlay color, and opacity are rendering options. The host fails closed by covering an image if it cannot analyze it or returns no person mask.
+The first release supports covering the entire image or the mask for all people Vision detects. Blur, overlay color, and opacity are rendering options. The host covers the whole image if analysis fails, image limits are exceeded, or no person mask is returned.
 
-Skin-only, selective body parts, apparent male/female filtering, custom rules, and the seven example modesty levels are not exposed by the baseline Vision provider. Those require different model capabilities and an evaluation set. “Male/female” can only mean a model's visual presentation label, not a person's identity or gender. Model choice and confidence thresholds must be explicit before those rules are enabled.
+Skin-only, selective body parts, apparent male/female filtering, custom rules, and the seven example modesty levels are not exposed by the baseline Vision provider. Those require different model capabilities and an evaluation set. “Male/female” can only mean a model's visual-presentation label, not a person's identity or gender. See MODEL-OPTIONS.md.
 
 ## Performance and quality
 
-The extension batches no images into a cloud call. Native host input is limited to 8 MiB and 24 megapixels; oversized, invalid, or unsupported images are covered in full. Mask results are capped below Chrome's native-host response limit. Vision runs in the native process and uses the operating system's inference scheduling. Keep the host port open so the provider can remain warm during browsing.
+The extension sends no images to a cloud service. Native-host input is limited to 8 MiB and 24 megapixels; oversized, invalid, or unsupported images are covered in full. Mask responses are capped below Chrome's native-host response limit. Vision runs in the native process with CPU-only execution disabled. Keep the native messaging connection open while filtering so the host remains available.
 
-The build workflow checks JavaScript syntax, runs browser-helper tests, runs Swift protocol tests with compiler warnings treated as errors, builds both Swift executables, and packages the app and extension. Model-specific evaluation must measure false negatives, false positives, latency, and mask alignment before a new provider's controls are shown.
+The build workflow checks JavaScript syntax, runs browser-helper tests, runs Swift protocol tests with compiler warnings treated as errors, builds both Swift executables, and packages the app and extension. Model-specific evaluation must measure false negatives, false positives, latency, and mask alignment before a provider's controls are shown.

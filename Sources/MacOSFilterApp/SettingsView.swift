@@ -41,6 +41,9 @@ struct SettingsView: View {
                         .monospacedDigit()
                         .frame(width: 48, alignment: .trailing)
                 }
+                Button("Save filtering settings") {
+                    saveSettings()
+                }
             }
             .formStyle(.grouped)
 
@@ -51,7 +54,6 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                     TextField("32-character extension ID", text: $extensionID)
                         .textFieldStyle(.roundedBorder)
-                        .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                     Button("Save Settings and Connect") {
                         connect()
@@ -67,14 +69,13 @@ struct SettingsView: View {
                 .textSelection(.enabled)
         }
         .padding(24)
-        .onChange(of: settings) { _, _ in
-            saveSettings()
-        }
     }
 
     private func saveSettings() {
         do {
             try SettingsStore.save(settings)
+            status = "Filtering settings saved."
+            statusIsError = false
         } catch {
             status = "Could not save settings: \(error.localizedDescription)"
             statusIsError = true

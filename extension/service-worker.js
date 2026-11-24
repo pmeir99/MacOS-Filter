@@ -5,15 +5,6 @@ const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 let nativePort = null;
 let inFlight = new Map();
 
-function resetPort(reason) {
-  if (nativePort) {
-    try { nativePort.disconnect(); } catch (_) {}
-  }
-  nativePort = null;
-  for (const pending of inFlight.values()) pending.reject(new Error(reason));
-  inFlight.clear();
-}
-
 function getPort() {
   if (nativePort) return nativePort;
   nativePort = chrome.runtime.connectNative(HOST_NAME);
@@ -111,7 +102,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 async function injectIntoTab(tabId) {
   try {
     await chrome.scripting.executeScript({
-      target: { tabId },
+      target: { tabId, allFrames: true },
       files: ["helpers.js", "content-script.js"]
     });
   } catch (_) {

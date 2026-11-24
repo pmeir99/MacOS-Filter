@@ -1,45 +1,29 @@
 # MacOS-Filter
 
-On-device image filtering for Chrome on macOS. The project pairs a small SwiftUI setup app and a Chrome Manifest V3 extension with a local Swift native-messaging host. Images and masks stay on the Mac.
+On-device image filtering for Chrome on macOS. The project pairs a SwiftUI settings app, a Chrome Manifest V3 extension, and a local Swift native-messaging host. Images and masks stay on the Mac.
 
-## One build path
+## Chosen build path
 
-1. The extension observes images on a site the user has enabled.
-2. It requests an image mask from the local native host using Chrome Native Messaging.
-3. The host validates and decodes the image, calls the configured segmentation provider, and returns a small mask.
-4. The extension draws a configurable overlay over the original image. The original image is never uploaded to a service.
-5. The SwiftUI app manages filtering preferences and registers the host manifest for the extension ID.
+Chrome discovers image elements and draws the overlay. The Swift app stores settings and registers the native host. The extension sends image bytes over Chrome Native Messaging; the host uses Apple Vision and returns a compact mask. This keeps browser-side code independent from model providers while leaving inference in native Apple frameworks.
 
-The extension owns browser-page discovery and rendering. Swift owns model execution and installation. A versioned JSON protocol keeps the browser side independent of the model framework.
+The current first modes are full-image cover and cover-all-detected-people. The baseline provider is Apple Vision person segmentation. The image pipeline and provider capability boundary are designed for optional Core ML and Core AI providers, which can add skin, body-region, exposure, and visual-presentation outputs later.
 
-## Model strategy
+## Hardware and privacy
 
-The first provider is Vision person segmentation. It is included with macOS, runs locally, and returns a person matte. It is a good baseline for covering the whole image or the detected person without downloading a model.
+The extension handles page access, permissions, and rendering. The local Swift host handles inference. Vision uses macOS image-analysis services and is not forced into CPU-only mode. Future Core ML providers should request all supported compute units; macOS may schedule work on CPU, GPU, or Neural Engine depending on the model and hardware. The extension does not ship a second model runtime or upload images.
 
-The `SegmentationProvider` boundary is intended to support additional providers:
+The extension is off until enabled. Enabling it requires granting Chrome access to websites and their images, including cross-origin CDNs. Input images are held in memory, capped at 8 MiB and 24 megapixels, and not written to disk by this project.
 
-- Core ML model packages for specialist classes or body-part parsing.
-- Apple Core AI image segmentation, including SAM 3, as an opt-in larger model on supported macOS versions. Apple documents a 623 MB SAM 3 asset targeting macOS 27. It must be downloaded on demand and evaluated for latency and mask quality before being exposed as a production option.
+## Model options and current limits
 
-A provider must report its capabilities. The app and extension must not show controls that the active provider cannot perform. Vision person segmentation does not identify semantic body parts such as face, hands, or clothing; those controls require a tested body-part model.
+See [docs/MODEL-OPTIONS.md](docs/MODEL-OPTIONS.md) for the comparison. Vision returns a person matte only. It does not classify modesty levels, exposed skin, clothing, or apparent gender. The app does not show unsupported controls.
 
-## Initial filtering modes
+Model outputs can miss people or body regions. This initial implementation covers the entire image when the host errors, the image exceeds limits, or no person mask is returned. Full-image mode does not need inference.
 
-- Entire image: cover the full image without inference.
-- People: cover the detected person mask.
-- Overlay style, color, opacity, and edge expansion or softening are presentation settings.
-- If inference fails or the provider cannot satisfy a selected rule, the extension covers the entire image and shows an actionable status instead of silently showing the unfiltered image.
+Videos and APK inspection are out of scope. The extension currently filters HTML image elements, not CSS background images.
 
-Videos and APK inspection are out of scope.
+## Quality checks
 
-## Quality bar
+The repository has native-protocol unit tests and extension helper tests for input normalization, fail-closed behavior, URL validation, and mask alignment. The macOS GitHub workflow checks extension syntax, runs tests with compiler warnings as errors, builds the app and host, packages both, and verifies the archives.
 
-- Validate native-message framing, message lengths, image type, and decoded dimensions.
-- Keep native host standard output protocol-only; write diagnostics to standard error.
-- Limit image bytes and pixel dimensions before inference.
-- Test provider capability handling, no-person images, malformed requests, mask response sizing, and browser overlay behavior.
-- Run Swift tests and package the macOS app on compatible Apple runners. Check extension JavaScript and run its Node test suite on every build.
-
-## Development
-
-See [docs/BUILDING.md](docs/BUILDING.md) for the project layout, local installation, browser permissions, and CI workflow. The app and extension are under active development; the repository does not yet contain a downloadable release.
+See [docs/BUILDING.md](docs/BUILDING.md) for setup and [docs/MODEL-OPTIONS.md](docs/MODEL-OPTIONS.md) for the model path.

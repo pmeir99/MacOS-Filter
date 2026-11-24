@@ -5,7 +5,7 @@ final class ProtocolTests: XCTestCase {
     func testFrameUsesLittleEndianLengthAndRoundTrips() throws {
         let payload = Data(#"{"protocolVersion":1}"#.utf8)
         let frame = try NativeMessageCodec.frame(payload)
-        XCTAssertEqual(Array(frame.prefix(4)), [22, 0, 0, 0])
+        XCTAssertEqual(Array(frame.prefix(4)), [21, 0, 0, 0])
         XCTAssertEqual(try NativeMessageCodec.decodeFrame(frame), payload)
     }
 
