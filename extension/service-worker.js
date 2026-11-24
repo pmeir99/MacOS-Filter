@@ -110,6 +110,7 @@ async function filterImage(imageData, description, page, thumbnail, background) 
   const settings = MacOSFilterHelpers.normalizeSettings(current);
   if (!settings.enabled) return { ok: true, settings };
   const rules = parsed;
+  if (FilterPolicy.excludes(host,rules.excluded)) return {ok:true,settings:{...settings,enabled:false}};
   const profile = rules.profiles.find(rule => FilterPolicy.excludes(host,[rule.site]));
   if (profile) settings.mode = profile.mode;
   const labels = FilterPolicy.pattern(rules.products);

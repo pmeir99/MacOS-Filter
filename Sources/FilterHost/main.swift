@@ -223,15 +223,25 @@ enum FilterHostMain {
                 if settings.mode == .peopleOnly {
                     let key = ("silhouette:" + digest) as NSString
                     let encoded: String
+                    var engine = "cache"
                     if let cached = maskCache.object(forKey: key) {
                         encoded = cached as String
                     } else {
-                        encoded = try provider.silhouettePNG(for: imageData)?.base64EncodedString() ?? ""
+                        let region: Data?
+                        do {
+                            region = try SemanticPeople.mask(imageData)
+                            engine = "DeepLabV3FP16"
+                        } catch {
+                            region = try provider.silhouettePNG(for: imageData)
+                            engine = "Vision fallback"
+                        }
+                        encoded = region?.base64EncodedString() ?? ""
                         guard encoded.utf8.count < 700_000 else { throw SegmentationError.maskEncodingFailed }
                         maskCache.setObject(encoded as NSString, forKey: key, cost: encoded.utf8.count)
                     }
                     var response = NativeResponse(requestID: request.requestID, ok: true,
                                                   maskData: encoded.isEmpty ? nil : encoded)
+                    response.engine = engine
                     response.personDetected = !encoded.isEmpty
                     return response
                 }

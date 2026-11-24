@@ -67,6 +67,10 @@ public final class VisionPersonSegmentationProvider: SegmentationProvider {
         return try Self.pngFromAlphaMask(pixelBuffer, silhouetteOnly: silhouetteOnly)
     }
 
+    public static func encodeSilhouette(_ buffer: CVPixelBuffer) throws -> Data? {
+        try pngFromAlphaMask(buffer, silhouetteOnly: true)
+    }
+
     private static func pngFromAlphaMask(_ pixelBuffer: CVPixelBuffer, silhouetteOnly: Bool) throws -> Data? {
         CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }

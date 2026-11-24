@@ -39,16 +39,19 @@ class Fixture(BaseHTTPRequestHandler):
             xphoto = "https://pbs.twimg.com/media/fixture?format=jpg&name=small"
             host = self.headers.get("Host")
             photo = wiki if host=="en.wikipedia.org" else xphoto
+            bg_style = f"background-image:url('{photo}')" if host=="x.com" else ""
+            css_background = f".bg{{background-image:url('{photo}')}}" if host!="x.com" else ""
             body = f"""<!doctype html><style>
               *{{box-sizing:border-box}} body{{margin:0;background:#e1f0e2}}main{{display:flex;gap:4px}}
               img,.bg,figure{{width:180px;height:180px;display:block;margin:0}}
               figure{{position:relative;clip-path:circle(48%);overflow:hidden}}
-              button{{position:absolute;right:38px;top:90px;background:#61327a;color:white;z-index:2}}
+              button{{appearance:none;border:0;border-radius:0;box-shadow:none;position:absolute;right:38px;top:90px;background:#61327a;color:white;z-index:2}}
               .bg{{position:relative;background-size:cover;background-position:center}}
+              {css_background}
             </style><main>
               <figure><picture><source srcset="{photo}"><img id="subject" src="/coffee.png"></picture><button>Save</button></figure>
               <img id="still" loading="lazy" alt="blocked test phrase" src="/coffee.png">
-              <div class="bg" id="bg" role="img" style="background-image:url('{photo}')"><button>Details</button></div>
+              <div class="bg" id="bg" style="{bg_style}"><button>Details</button></div>
               <div id="shadow"><template shadowrootmode="open"><img id="inside" width="120" height="120" src="/portrait.png"></template></div>
             </main><img id="pair" width="512" height="256" style="width:512px;height:256px" src="/pair.png">""".encode()
             mime = "text/html"
@@ -194,6 +197,8 @@ with tempfile.TemporaryDirectory() as temp, sync_playwright() as pw:
             page.wait_for_selector('#bg[data-macos-filter-background="people-masked"]')
             print(f"{domain} fixture: gallery decisions after settings save in {(time.perf_counter()-t0)*1000:.0f} ms",flush=True)
             assert all(page.locator(key).bounding_box()==bounds[key] for key in selectors)
+            for key in ["figure button","#bg button"]:
+                assert page.locator(key).evaluate("el=>{const r=el.getBoundingClientRect();return document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)===el}")
             for key in ["#still","figure button","#bg button"]:
                 assert not ImageChops.difference(baseline[key],snap(key)).getbbox(),key
             for key in ["figure","#bg","#inside","#pair"]:
@@ -245,6 +250,12 @@ with tempfile.TemporaryDirectory() as temp, sync_playwright() as pw:
                 page.wait_for_selector('#pair[data-macos-filter-status="people-masked"]')
                 page.locator("#pair").evaluate("img=>{img.src='/coffee.png'}")
                 page.wait_for_selector('#pair[data-macos-filter-status="no-person-detected"]')
+            if domain=="x.com":
+                setting("overlayColor","#334455")
+                setting("overlayStyle","solid")
+                page.wait_for_function(r"""()=>{const el=document.querySelector('#subject'),ref=el.style.filter.match(/#(mf-[\w-]+)/);return ref && document.getElementById(ref[1])?.querySelector('feFlood[flood-color="#334455"]') && el.dataset.macosFilterStatus==='people-masked'}""")
+                assert snap("figure").getpixel((78,39))==(51,68,85)
+                assert not ImageChops.difference(baseline["#still"],snap("#still")).getbbox()
             setting("enabled",False)
             page.wait_for_selector('#bg[data-macos-filter-background]',state="detached")
             assert not ImageChops.difference(baseline["figure"],snap("figure")).getbbox()

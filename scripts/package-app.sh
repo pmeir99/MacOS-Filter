@@ -59,6 +59,10 @@ curl --fail --location --retry 3 --silent --show-error 'https://raw.githubuserco
 test "$(git hash-object "$MODEL_DIR/Nudity.mlmodel")" = fd69d0c03ef5458b4543b37630c48f60111562a9
 xcrun coremlcompiler compile "$MODEL_DIR/Nudity.mlmodel" "$APP/Contents/Resources"
 test -d "$APP/Contents/Resources/Nudity.mlmodelc"
+curl -fsSL --retry 3 'https://ml-assets.apple.com/coreml/models/Image/ImageSegmentation/DeepLabV3/DeepLabV3FP16.mlmodel' -o "$MODEL_DIR/DeepLabV3FP16.mlmodel"
+shasum -a 256 "$MODEL_DIR/DeepLabV3FP16.mlmodel"
+xcrun coremlcompiler compile "$MODEL_DIR/DeepLabV3FP16.mlmodel" "$APP/Contents/Resources"
+test -d "$APP/Contents/Resources/DeepLabV3FP16.mlmodelc"
 bash scripts/build-policy-models.sh "$APP/Contents/Resources" "$MODEL_DIR"
 plutil -lint "$APP/Contents/Info.plist"
 # Ad-hoc signatures detect bundle corruption but do not notarize the app.

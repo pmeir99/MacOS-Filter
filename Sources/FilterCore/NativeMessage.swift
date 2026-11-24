@@ -47,6 +47,7 @@ public struct NativeResponse: Codable {
     public let ok: Bool
     public var settings: FilterSettings?
     public var automaticUpdates: Bool?
+    public var engine: String?
     public var personDetected: Bool?
     public var maskData: String?
     public var coverWholeImage: Bool?

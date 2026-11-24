@@ -4,7 +4,8 @@ globalThis.PeopleBackgrounds = (() => {
   const selector = '[style*="background" i],[role="img"]';
   const placeholder = "linear-gradient(transparent, transparent)";
   function create() {
-    const records = new Map(), queue = new Set();
+    const records = new Map(), queue = new Set(), classCandidates = new Set();
+    let idle = null;
     let active = 0, stopped = false;
     function write(el, record, value) {
       el.style.setProperty("background-image",value,"important");
@@ -81,7 +82,7 @@ globalThis.PeopleBackgrounds = (() => {
     function inspect(el, classChanged=false) {
       if (!(el instanceof HTMLElement) || !el.isConnected) return;
       let old=records.get(el);
-      if (!old && !el.matches(selector)) return;
+      if (!old && !el.matches(selector) && !el.hasAttribute("class")) return;
       if (old?.applied && el.style.getPropertyValue("background-image")===old.applied) {
         if (!classChanged) return;
         forget(el);
@@ -99,11 +100,29 @@ globalThis.PeopleBackgrounds = (() => {
       el.dataset.macosFilterBackground="scanning";
       queue.add(el);pump();
     }
+    function drainClasses(deadline) {
+      idle=null;
+      // Inspect ordinary stylesheet backgrounds without monopolizing a feed's render tick.
+      let count=0;
+      for (const el of classCandidates) {
+        classCandidates.delete(el);
+        inspect(el);
+        if (++count>=64 || deadline.timeRemaining()<2) break;
+      }
+      if (classCandidates.size) idle=requestIdleCallback(drainClasses,{timeout:150});
+    }
     return {
-      scan(root) {inspect(root);root.querySelectorAll?.(selector).forEach(el=>inspect(el));},
+      scan(root) {
+        inspect(root);
+        root.querySelectorAll?.(selector).forEach(el=>inspect(el));
+        for (const el of root.querySelectorAll?.("[class]") || []) {
+          if (el instanceof HTMLElement && !el.matches(selector)) classCandidates.add(el);
+        }
+        if (classCandidates.size && idle===null) idle=requestIdleCallback(drainClasses,{timeout:150});
+      },
       inspect, forget,
       remove(root) {forget(root);root.querySelectorAll?.("[data-macos-filter-background]").forEach(forget);},
-      stop() {stopped=true;queue.clear();for (const el of records.keys()) forget(el);}
+      stop() {stopped=true;if(idle!==null) cancelIdleCallback(idle);classCandidates.clear();queue.clear();for (const el of records.keys()) forget(el);}
     };
   }
   return {create};

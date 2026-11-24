@@ -13,7 +13,7 @@ from zipfile import ZipFile
 from PIL import Image, ImageChops, ImageDraw
 
 host, archive = sys.argv[1:]
-counts = Counter()
+counts, engines = Counter(), Counter()
 elapsed, warm = [], []
 missed, extra, unscanned = [], [], []
 intersection = union = relevant = predicted = 0
@@ -64,6 +64,7 @@ with ZipFile(archive) as dataset, subprocess.Popen(
             relevant+=foreground(truth)
             union+=foreground(truth)
             continue
+        engines[answer.get("engine")] += 1
         found = answer["personDetected"]
         actual = bool(truth.getbbox())
         counts[(actual,found)]+=1
@@ -82,11 +83,12 @@ with ZipFile(archive) as dataset, subprocess.Popen(
         warm.append(ms)
     process.stdin.close()
     process.wait(timeout=20)
-summary = dict(images=len(images),unscanned=unscanned,true_positive=counts[True,True],true_negative=counts[False,False],
+summary = dict(images=len(images),engines=dict(engines),unscanned=unscanned,true_positive=counts[True,True],true_negative=counts[False,False],
                false_positive=extra,false_negative=missed,foreground_iou=round(intersection/max(1,union),3),
                foreground_precision=round(intersection/max(1,predicted),3),foreground_recall=round(intersection/max(1,relevant),3),
                native_uncached_ms_p50=round(statistics.median(elapsed),1),native_uncached_ms_p95=round(sorted(elapsed)[121],1),
                native_cached_ms_p50=round(statistics.median(warm),1))
 print("COCO128-seg benchmark",json.dumps(summary),flush=True)
 Path("silhouette-benchmark.json").write_text(json.dumps(summary,indent=2)+"\n")
+assert engines["DeepLabV3FP16"] == len(images), "Packaged primary segmentation failed on benchmark photos"
 assert relevant and predicted and counts[True,True] and counts[False,False], "Missing meaningful benchmark coverage"
