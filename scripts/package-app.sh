@@ -43,3 +43,30 @@ codesign --verify --deep --strict --verbose=2 "$APP"
 mkdir -p "$ROOT/dist"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ROOT/dist/MacOS-Filter-macOS.zip"
 ditto -c -k "$ROOT/extension" "$ROOT/dist/MacOS-Filter-Chrome-Extension.zip"
+
+# Reopen the shipped ZIP and run the classifier on generated pixels.
+ditto -x -k "$ROOT/dist/MacOS-Filter-macOS.zip" "$MODEL_DIR/unpacked"
+SHIPPED="$MODEL_DIR/unpacked/MacOS Filter.app"
+codesign --verify --strict --deep "$SHIPPED"
+cat > "$MODEL_DIR/smoke.swift" <<'SWIFT'
+import Foundation
+import Vision
+import CoreML
+import CoreGraphics
+let config = MLModelConfiguration()
+config.computeUnits = .all
+let model = try MLModel(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1]), configuration: config)
+let request = VNCoreMLRequest(model: try VNCoreMLModel(for: model))
+request.imageCropAndScaleOption = .scaleFill
+let pixels = CGContext(data: nil, width: 224, height: 224, bitsPerComponent: 8, bytesPerRow: 896,
+    space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+pixels.setFillColor(gray: 0.6, alpha: 1)
+pixels.fill(CGRect(x: 0, y: 0, width: 224, height: 224))
+try VNImageRequestHandler(cgImage: pixels.makeImage()!, options: [:]).perform([request])
+guard let scores = request.results as? [VNClassificationObservation],
+      let risk = scores.first(where: { $0.identifier.uppercased() == "NSFW" }),
+      risk.confidence.isFinite, (0...1).contains(risk.confidence)
+else { fatalError("Packaged model did not produce a valid NSFW score") }
+print("Packaged classifier inference passed")
+SWIFT
+swift "$MODEL_DIR/smoke.swift" "$SHIPPED/Contents/Resources/Nudity.mlmodelc"
