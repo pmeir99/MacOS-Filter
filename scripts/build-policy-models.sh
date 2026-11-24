@@ -18,6 +18,7 @@ fetch "https://raw.githubusercontent.com/openai/CLIP/main/LICENSE" "$resources/P
 fetch "https://www.apache.org/licenses/LICENSE-2.0.txt" "$resources/PolicyModels/Notices/MediaPipe-LICENSE"
 fetch "https://raw.githubusercontent.com/microsoft/onnxruntime/v1.20.1/LICENSE" "$resources/PolicyModels/Notices/ONNXRuntime-LICENSE"
 "$python" scripts/prompt-bank.py "$work" "$resources/PolicyModels"
+"$python" scripts/test-policy-routing.py "$resources/PolicyModels"
 "$python" -m PyInstaller --log-level WARN --noconfirm --clean --onefile --name PolicyWorker --distpath "$work/dist" --workpath "$work/build" --specpath "$work" --collect-binaries onnxruntime scripts/policy-worker.py
 cp "$work/dist/PolicyWorker" "$(dirname "$resources")/MacOS/PolicyWorker"
 codesign --force --sign - "$(dirname "$resources")/MacOS/PolicyWorker"

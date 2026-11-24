@@ -74,7 +74,8 @@ def analyze(req):
     rgba.save(out,format="PNG")
     return {"mask":base64.b64encode(out.getvalue()).decode(),"levels":levels}
 
-for line in sys.stdin.buffer:
-    try: reply=analyze(json.loads(line))
-    except Exception: reply={"error":"local policy analysis failed"}
-    print(json.dumps(reply,separators=(",",":")),flush=True)
+if __name__ == "__main__":
+    for line in sys.stdin.buffer:
+        try: reply=analyze(json.loads(line))
+        except Exception: reply={"error":"local policy analysis failed"}
+        print(json.dumps(reply,separators=(",",":")),flush=True)
