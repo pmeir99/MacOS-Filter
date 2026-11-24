@@ -89,7 +89,7 @@
       const filter = svg("filter",{id,x:"0%",y:"0%",width:"100%",height:"100%","color-interpolation-filters":"sRGB"});
       const partial = !MacOSFilterHelpers.shouldCoverWholeImage(result);
       const blur = result.settings.overlayStyle === "blur";
-      filter.append(blur ? svg("feGaussianBlur",{in:"SourceGraphic",stdDeviation:16,edgeMode:"duplicate",result:"paint"})
+      filter.append(blur ? svg("feGaussianBlur",{in:"SourceGraphic",stdDeviation:result.settings.blurRadius || 16,edgeMode:"duplicate",result:"paint"})
                          : svg("feFlood",{"flood-color":result.settings.overlayColor,"flood-opacity":result.settings.opacity,result:"paint"}));
       let mask;
       if (partial) {

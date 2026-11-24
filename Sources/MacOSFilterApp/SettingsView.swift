@@ -8,7 +8,7 @@ struct SettingsView: View {
     @State private var statusIsError = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        ScrollView { VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 12) {
                 Image(systemName: "eye.slash")
                     .font(.system(size: 25, weight: .semibold))
@@ -25,9 +25,14 @@ struct SettingsView: View {
                     Text("Block high NSFW scores, otherwise cover people").tag(FilterMode.adaptive)
                     Text("Detected faces only").tag(FilterMode.faces)
                     Text("Entire image").tag(FilterMode.entireImage)
+                    Text("Skin mask (experimental)").tag(FilterMode.skin)
+                    Text("Seven-level policy (experimental)").tag(FilterMode.policy)
                     Text("All detected people").tag(FilterMode.allPeople)
                 }
-                if settings.mode == .adaptive {
+                if settings.mode == .skin || settings.mode == .policy {
+                    AdvancedPolicySettings(settings: $settings)
+                }
+                if settings.mode == .adaptive || settings.mode == .policy {
                     Slider(value: Binding(get: { settings.blockThreshold ?? 0.7 },
                         set: { settings.blockThreshold = $0 }), in: 0.1...0.95, step: 0.05)
                         .accessibilityLabel("Whole-image cutoff")
@@ -36,6 +41,11 @@ struct SettingsView: View {
                 Picker("Overlay", selection: $settings.overlayStyle) {
                     Text("Solid color").tag(OverlayStyle.solid)
                     Text("Blur").tag(OverlayStyle.blur)
+                }
+                if settings.overlayStyle == .blur {
+                    Slider(value: Binding(get: { settings.blurRadius ?? 16 }, set: { settings.blurRadius = $0 }), in: 4...40)
+                        .accessibilityLabel("Blur radius")
+                    Text("Blur radius: " + String(Int(settings.blurRadius ?? 16)) + " px")
                 }
                 Picker("Color", selection: $settings.overlayColor) {
                     Text("Black").tag("#000000")
@@ -74,7 +84,9 @@ struct SettingsView: View {
                 .foregroundStyle(statusIsError ? Color.red : Color.secondary)
                 .textSelection(.enabled)
         }
-        .padding(24)
+        .padding(24) }
+        .frame(minWidth: 480, minHeight: 490)
+
         .onChange(of: settings) { _ in saveSettings() }
         .onAppear {
             if extensionID.isEmpty, let existing = NativeHostInstaller.registeredID() {

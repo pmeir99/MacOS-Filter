@@ -29,7 +29,7 @@ jobs:
           script: |
             const raceId = String(context.runId) + "-" + process.env.GITHUB_RUN_ATTEMPT;
             const branch = "macos-filter-races/" + raceId;
-            const labels = ["macos-26", "macos-26-intel", "xcode-27"];
+            const labels = ["macos-26", "macos-15", "macos-latest"];
 
             const oldRuns = await github.rest.actions.listWorkflowRuns({
               owner: context.repo.owner,

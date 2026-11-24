@@ -126,7 +126,10 @@ enum FilterHostMain {
             }
             do {
                 let digest = Data(SHA256.hash(data: imageData)).base64EncodedString()
-                let key = "\(settings.mode.rawValue)|\(settings.blockThreshold ?? 0.7)|\(digest)" as NSString
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = .sortedKeys
+                let policyKey = try encoder.encode(settings).base64EncodedString()
+                let key = "\(settings.mode.rawValue)|\(settings.blockThreshold ?? 0.7)|\(policyKey)|\(digest)" as NSString
                 if let cached = maskCache.object(forKey: key) {
                     return NativeResponse(requestID: request.requestID, ok: true, maskData: cached as String)
                 }
@@ -135,7 +138,7 @@ enum FilterHostMain {
                       CGImageSourceGetCount(source) == 1 else {
                     return NativeResponse(requestID: request.requestID, ok: true, coverWholeImage: true)
                 }
-                if settings.mode == .adaptive {
+                if settings.mode == .adaptive || settings.mode == .policy {
                     guard let classifier else { throw NativeProtocolError.invalidFrame }
                     let analysis = VNCoreMLRequest(model: classifier)
                     analysis.imageCropAndScaleOption = .scaleFill
@@ -147,6 +150,14 @@ enum FilterHostMain {
                     if Double(risk.confidence) >= (settings.blockThreshold ?? 0.7) {
                         return NativeResponse(requestID: request.requestID, ok: true, coverWholeImage: true)
                     }
+                }
+                if settings.mode == .skin || settings.mode == .policy {
+                    let decision = try PolicyEngine.shared.analyze(imageData, settings: settings)
+                    if let mask = decision.mask {
+                        maskCache.setObject(mask as NSString, forKey:key, cost:mask.utf8.count)
+                        return NativeResponse(requestID:request.requestID,ok:true,maskData:mask)
+                    }
+                    return NativeResponse(requestID:request.requestID,ok:true,coverWholeImage:true)
                 }
                 let region: Data?
                 if settings.mode == .faces {

@@ -1,0 +1,59 @@
+{
+  "levels": [
+    [
+      "explicit sexual activity",
+      "pornographic sexual intercourse"
+    ],
+    [
+      "explicit nudity with exposed intimate anatomy",
+      "a nude person with exposed breasts or genitals"
+    ],
+    [
+      "a person wearing a bikini or lingerie",
+      "a person in swimwear at a beach"
+    ],
+    [
+      "a person in revealing clothing with bare midriff or thighs",
+      "a shirtless person in shorts"
+    ],
+    [
+      "a person in ordinary clothes with short sleeves or exposed shoulders",
+      "a person wearing a sleeveless top"
+    ],
+    [
+      "a fully dressed person in everyday covered clothing or trousers",
+      "a person in a long sleeved shirt and pants"
+    ],
+    [
+      "a person wearing a loose long dress with a high neckline and long sleeves",
+      "a loose ankle length skirt with a high neckline and covered arms"
+    ]
+  ],
+  "presentation": [
+    [
+      "a person with masculine visual presentation"
+    ],
+    [
+      "a person with feminine visual presentation"
+    ]
+  ],
+  "products": [
+    [
+      "lingerie, lace bra or underwear sold as a product",
+      "a brassiere or panties in a catalog photograph"
+    ],
+    [
+      "an adult sex toy sold in a shop",
+      "an erotic novelty or adult sexual accessory"
+    ],
+    [
+      "a menstrual pad, tampon or menstrual cup sold as a product"
+    ],
+    [
+      "ordinary outer clothing or sports equipment",
+      "an everyday household object or electronic device",
+      "a landscape, animal or architecture",
+      "people in a normal everyday scene"
+    ]
+  ]
+}

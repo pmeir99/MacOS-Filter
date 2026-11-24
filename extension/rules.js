@@ -1,6 +1,6 @@
 function addProfile(profile = {}) {
   const row = document.createElement("div");
-  row.innerHTML = '<input aria-label="Website" placeholder="example.org"><select aria-label="Image mode"><option value="adaptive">Adaptive</option><option value="allPeople">People</option><option value="faces">Faces</option><option value="entireImage">Entire image</option></select><input aria-label="NSFW cutoff" type="number" min="0.10" max="0.95" step="0.01"><button type="button">Remove</button>';
+  row.innerHTML = '<input aria-label="Website" placeholder="example.org"><select aria-label="Image mode"><option value="adaptive">Adaptive</option><option value="allPeople">People</option><option value="policy">Seven levels</option><option value="skin">Skin</option><option value="faces">Faces</option><option value="entireImage">Entire image</option></select><input aria-label="NSFW cutoff" type="number" min="0.10" max="0.95" step="0.01"><button type="button">Remove</button>';
   const [site,mode,cutoff,remove] = row.children;
   site.value = profile.site || "";
   mode.value = profile.mode || "adaptive";

@@ -48,3 +48,18 @@ finally:
     host.stdin.close()
     host.wait(timeout=15)
     print(f'Peak child RSS {resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss / 1048576:.1f} MiB')
+
+# Exercise the production worker through the packaged host and verify both
+# positive and negative pixels on the same photographed face.
+host = subprocess.Popen([sys.argv[1], "chrome-extension://" + "a"*32 + "/"],
+                        stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+try:
+    skin = request("skin","skin")
+    alpha = Image.open(io.BytesIO(base64.b64decode(skin["maskData"]))).convert("RGBA").getchannel("A").resize((512,512))
+    assert alpha.getpixel((220,108)) > 80, "skin provider missed portrait face"
+    assert alpha.getpixel((500,5)) < 80, "skin provider masked background"
+    decision = request("policy","levels")
+    assert decision.get("maskData") or decision.get("coverWholeImage")
+finally:
+    host.stdin.close()
+    host.wait(timeout=30)

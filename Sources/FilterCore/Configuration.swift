@@ -2,6 +2,8 @@ import Foundation
 
 public enum FilterMode: String, Codable, CaseIterable {
     case entireImage
+    case skin
+    case policy
     case faces
     case adaptive
     case allPeople
@@ -13,6 +15,13 @@ public enum OverlayStyle: String, Codable, CaseIterable {
 }
 
 public struct FilterSettings: Codable, Equatable {
+    public var fullLevel: Int?
+    public var maskLevel: Int?
+    public var products: [String]?
+    public var appearance: String?
+    public var paintSkin: Bool?
+    public var includeFace: Bool?
+    public var blurRadius: Double?
     public var enabled: Bool
     public var mode: FilterMode
     public var overlayStyle: OverlayStyle
