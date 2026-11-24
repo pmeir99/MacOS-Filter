@@ -25,6 +25,7 @@ globalThis.PeopleBackgrounds = (() => {
       restore(el,record);
       delete el.dataset.macosFilterBackground;
       delete el.dataset.macosFilterBackgroundReason;
+      delete el.dataset.macosFilterBackgroundStage;
     }
     async function localBytes(url) {
       if (/^data:image\/(?:png|jpeg|webp|avif|gif);base64,/i.test(url)) {
@@ -48,8 +49,10 @@ globalThis.PeopleBackgrounds = (() => {
     async function run(el, record) {
       const current = () => !stopped && el.isConnected && records.get(el)===record;
       try {
+        el.dataset.macosFilterBackgroundStage="read";
         const bytes = await localBytes(record.url);
         if (!current()) return;
+        el.dataset.macosFilterBackgroundStage="analysis";
         const response = await chrome.runtime.sendMessage({type:"filterImage",background:true,
           ...(bytes ? {imageData:bytes} : {thumbnail:record.url})});
         if (!current()) return;
@@ -57,12 +60,13 @@ globalThis.PeopleBackgrounds = (() => {
           setTimeout(()=>{if(current()){queue.add(el);pump();}},300);
           return;
         }
-        if (response?.ok && response.personDetected && response.background) {
-          const painted = new Image();
-          painted.src = response.background;
-          await painted.decode();
+        if (response?.ok && response.personDetected && response.maskData) {
+          el.dataset.macosFilterBackgroundStage="paint";
+          const painted=await BackgroundPaint.render(bytes || response.sourceBytes,response.maskData,response.settings);
+          el.dataset.macosFilterBackgroundStage="decode";
+          await BackgroundPaint.decode(painted);
           if (!current()) return;
-          write(el,record,'url("'+response.background+'")');
+          write(el,record,'url("'+painted+'")');
           el.dataset.macosFilterBackground="people-masked";
         } else {
           restore(el,record);
@@ -71,6 +75,8 @@ globalThis.PeopleBackgrounds = (() => {
         }
       } catch (error) {
         if (current()) {restore(el,record);el.dataset.macosFilterBackground="unscanned";el.dataset.macosFilterBackgroundReason=error.message;}
+      } finally {
+        if (current()) delete el.dataset.macosFilterBackgroundStage;
       }
     }
     function pump() {

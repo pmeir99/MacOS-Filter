@@ -31,5 +31,15 @@ globalThis.FilterPolicy = (() => {
     const literal = phrases.slice().sort((a,b) => b.length-a.length).map(p => p.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")).join("|");
     return new RegExp("(?<![\\p{L}\\p{N}_])(?:" + literal + ")(?![\\p{L}\\p{N}_])","giu");
   }
-  return { parse, excludes, pattern };
+  function pageRules(rules,host,topHost) {
+    const match=domain=>rules.profiles.find(profile=>excludes(domain,[profile.site]));
+    return {excluded:excludes(topHost,rules.excluded) || excludes(host,rules.excluded),
+      profile:match(topHost) || match(host)};
+  }
+  function topHostname() {
+    const origins=location.ancestorOrigins;
+    try { return origins?.length ? new URL(origins[origins.length-1]).hostname || location.hostname : location.hostname; }
+    catch { return location.hostname; }
+  }
+  return {parse,excludes,pattern,pageRules,topHostname};
 })();

@@ -6,8 +6,9 @@ async function apply(){
   const {enabled,siteRules}=await chrome.storage.local.get(["enabled","siteRules"]);
   if(version!==generation)return;
   const rules=FilterPolicy.parse(siteRules);
-  const pattern=FilterPolicy.pattern([...rules.phrases,...rules.sitePhrases.filter(rule=>FilterPolicy.excludes(location.hostname,[rule.site])).map(rule=>rule.phrase)]);
-  if(!enabled || !pattern || FilterPolicy.excludes(location.hostname,rules.excluded))return;
+  const topHost=FilterPolicy.topHostname();
+  const pattern=FilterPolicy.pattern([...rules.phrases,...rules.sitePhrases.filter(rule=>FilterPolicy.excludes(location.hostname,[rule.site]) || FilterPolicy.excludes(topHost,[rule.site])).map(rule=>rule.phrase)]);
+  if(!enabled || !pattern || FilterPolicy.pageRules(rules,location.hostname,topHost).excluded)return;
   function scan(){
     const marks=new Highlight();
     // Match a phrase across inline markup without joining separate paragraphs.

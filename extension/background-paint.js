@@ -1,41 +1,47 @@
-// Render a CSS background independently of its owner's text, badges and child elements.
+// Paint in the requesting document; the MV3 worker only transports input and the native mask.
 globalThis.BackgroundPaint = (() => {
-  function blobFromBase64(value, type) {
-    return new Blob([Uint8Array.from(atob(value), ch=>ch.charCodeAt(0))], {type});
-  }
-  async function render(bytes, mask, settings) {
-    const photo = await createImageBitmap(blobFromBase64(bytes,"application/octet-stream"));
+  async function decode(dataURL) {
+    const image=new Image();
+    image.decoding="sync";
+    let timer;
     try {
-      if (photo.width*photo.height > 4_000_000) throw Error("Background exceeds the paint budget.");
-      const matte = await createImageBitmap(blobFromBase64(mask,"image/png"));
-      try {
-        const canvas = new OffscreenCanvas(photo.width,photo.height);
-        const ctx = canvas.getContext("2d");
-        if (settings.overlayStyle === "blur") {
-          ctx.filter = "blur("+settings.blurRadius+"px)";
-          ctx.drawImage(photo,0,0);
-          ctx.filter = "none";
-        } else {
-          ctx.globalAlpha = settings.opacity;
-          ctx.fillStyle = settings.overlayColor;
-          ctx.fillRect(0,0,canvas.width,canvas.height);
-          ctx.globalAlpha = 1;
-        }
-        ctx.globalCompositeOperation = "destination-in";
-        ctx.drawImage(matte,0,0,canvas.width,canvas.height);
-        const output = new OffscreenCanvas(photo.width,photo.height);
-        const composite = output.getContext("2d");
-        composite.drawImage(photo,0,0);
-        composite.globalCompositeOperation = "source-atop";
-        composite.drawImage(canvas,0,0);
-        const blob = await output.convertToBlob({type:"image/png"});
-        if (blob.size > 8*1024*1024) throw Error("Background exceeds the paint budget.");
-        const bytes = new Uint8Array(await blob.arrayBuffer());
-        const chunks = [];
-        for (let i=0;i<bytes.length;i+=8192) chunks.push(String.fromCharCode(...bytes.subarray(i,i+8192)));
-        return "data:image/png;base64,"+btoa(chunks.join(""));
-      } finally { matte.close(); }
-    } finally { photo.close(); }
+      image.src=dataURL;
+      await Promise.race([image.decode(),new Promise((_,reject)=>{
+        timer=setTimeout(()=>reject(Error("Background image decoding timed out.")),8000);
+      })]);
+      return image;
+    } finally {clearTimeout(timer);}
   }
-  return {render};
+  function layer(width,height) {
+    const canvas=document.createElement("canvas");
+    canvas.width=width;canvas.height=height;
+    return canvas.getContext("2d",{willReadFrequently:true});
+  }
+  async function render(bytes,mask,settings) {
+    // Browser image decoders sniff the original raster format from its bytes.
+    const [photo,matte]=await Promise.all([decode("data:image/png;base64,"+bytes),decode("data:image/png;base64,"+mask)]);
+    const w=photo.naturalWidth,h=photo.naturalHeight;
+    if (!w || !h || w*h>4_000_000) throw Error("Background exceeds the paint budget.");
+    const paint=layer(w,h);
+    if (settings.overlayStyle==="blur") {
+      paint.filter="blur("+settings.blurRadius+"px)";
+      paint.drawImage(photo,0,0);
+      paint.filter="none";
+    } else {
+      paint.globalAlpha=settings.opacity;
+      paint.fillStyle=settings.overlayColor;
+      paint.fillRect(0,0,w,h);
+      paint.globalAlpha=1;
+    }
+    paint.globalCompositeOperation="destination-in";
+    paint.drawImage(matte,0,0,w,h);
+    const output=layer(w,h);
+    output.drawImage(photo,0,0);
+    output.globalCompositeOperation="source-atop";
+    output.drawImage(paint.canvas,0,0);
+    const dataURL=output.canvas.toDataURL("image/png");
+    if (!dataURL.startsWith("data:image/png;base64,") || dataURL.length>11184850) throw Error("Background exceeds the paint budget.");
+    return dataURL;
+  }
+  return {decode,render};
 })();

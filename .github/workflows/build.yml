@@ -109,6 +109,9 @@ jobs:
           if-no-files-found: ignore
 
       - name: Wait for the runner that wins and builds
+        # Keep the race refs alive for packaged diagnostics even when Chromium fails.
+        # The download and publish steps still require every preceding test to succeed.
+        if: ${{ !cancelled() && steps.race.outcome == 'success' }}
         id: winner
         uses: actions/github-script@v8
         env:

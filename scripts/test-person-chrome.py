@@ -172,6 +172,7 @@ with tempfile.TemporaryDirectory() as temp, sync_playwright() as pw:
         setting("overlayStyle","blur")
         setting("siteRules.products","blocked test phrase")
         for domain in ["en.wikipedia.org","x.com"]:
+            page.bring_to_front()
             page.goto("https://"+domain+"/gallery")
             subject=page.locator("#subject")
             subject.evaluate("img=>img.decode()")
@@ -199,7 +200,7 @@ with tempfile.TemporaryDirectory() as temp, sync_playwright() as pw:
             try:
                 page.wait_for_selector('#bg[data-macos-filter-background="people-masked"]')
             except Exception:
-                print("Background scan:",page.locator("#bg").evaluate("""el=>({state:el.dataset.macosFilterBackground,reason:el.dataset.macosFilterBackgroundReason,css:getComputedStyle(el).backgroundImage.slice(0,240),src:el.getAttribute('style')?.slice(0,240)})"""),flush=True)
+                print("Background scan:",page.locator("#bg").evaluate("""el=>({state:el.dataset.macosFilterBackground,stage:el.dataset.macosFilterBackgroundStage,reason:el.dataset.macosFilterBackgroundReason,css:getComputedStyle(el).backgroundImage.slice(0,240),src:el.getAttribute('style')?.slice(0,240)})"""),flush=True)
                 print("Image verdicts:",page.locator("img").evaluate_all("imgs=>imgs.map(i=>[i.id,i.dataset.macosFilterStatus,i.dataset.macosFilterReason])"),flush=True)
                 print("Requests:",requests[-24:],flush=True)
                 raise

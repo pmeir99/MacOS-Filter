@@ -245,6 +245,11 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     # Run the production popup document against the real active website tab.
     # A same-extension frame keeps the toolbar UI inspectable in headless CI.
     assert cfg["action"]["default_popup"]=="popup.html" and cfg["options_ui"]["open_in_tab"]
+    settings["siteRules"]["excluded"]=""
+    push()
+    sample.evaluate("""src=>{const f=document.createElement('iframe');f.id='embedded';f.src=src;document.body.append(f)}""",url.replace("127.0.0.1","localhost"))
+    embedded=sample.frame_locator("#embedded")
+    embedded.locator("img[data-macos-filter-overlay]").wait_for()
     harness=ctx.new_page()
     harness.goto(base+"/blocked.html")
     sample.bring_to_front()
@@ -253,10 +258,12 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     popup.get_by_role("heading",name="127.0.0.1").wait_for()
     popup.get_by_label("Filter this site").uncheck()
     sample.wait_for_function("document.documentElement.hasAttribute('data-mf-paused')")
+    embedded.locator("html[data-mf-paused]").wait_for(state="attached")
     page.wait_for_function("document.getElementById('siteRules.excluded').value.includes('127.0.0.1')")
     assert popup.get_by_label("What to cover").is_disabled()
     popup.get_by_label("Filter this site").check()
     sample.wait_for_function("!document.documentElement.hasAttribute('data-mf-paused')")
+    embedded.locator("img[data-macos-filter-overlay]").wait_for()
     popup.get_by_label("What to cover").select_option("entireImage")
     page.wait_for_function("Array.from(document.querySelectorAll('#profiles select')).some(s=>s.value==='entireImage')")
     popup.get_by_label("What to cover").select_option("")

@@ -1,4 +1,4 @@
-importScripts("helpers.js","policy.js","settings.js","google-thumbnails.js","public-media.js","background-paint.js");
+importScripts("helpers.js","policy.js","settings.js","google-thumbnails.js","public-media.js");
 
 const HOST_NAME = "com.pmeir99.macos_filter";
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -94,24 +94,21 @@ async function scheduledAnalysis(imageData, profile, thumbnail, paintSettings) {
   try {
     if (thumbnail) imageData = await readThumbnail(thumbnail);
     const result = await segmentPixels(imageData,profile);
-    if (paintSettings && result.ok && result.personDetected && result.maskData) {
-      result.background = await BackgroundPaint.render(imageData,result.maskData,paintSettings);
-      delete result.maskData;
-    }
+    if (paintSettings && thumbnail && result.ok && result.personDetected && result.maskData) result.sourceBytes=imageData;
     return result;
   }
   finally { const next=waiting.shift(); if(next) next(); else active--; }
 }
 
-async function filterImage(imageData, description, page, thumbnail, background) {
+async function filterImage(imageData, description, page, thumbnail, background, tabURL) {
   const host = new URL(page).hostname;
   if (!current) await initialize();
   if (!current) throw Error("The local helper is unavailable.");
   const settings = MacOSFilterHelpers.normalizeSettings(current);
   if (!settings.enabled) return { ok: true, settings };
   const rules = parsed;
-  if (FilterPolicy.excludes(host,rules.excluded)) return {ok:true,settings:{...settings,enabled:false}};
-  const profile = rules.profiles.find(rule => FilterPolicy.excludes(host,[rule.site]));
+  const {excluded,profile}=FilterPolicy.pageRules(rules,host,new URL(tabURL || page).hostname);
+  if (excluded) return {ok:true,settings:{...settings,enabled:false}};
   if (profile) settings.mode = profile.mode;
   const labels = FilterPolicy.pattern(rules.products);
   const silhouettes = settings.mode === "peopleOnly";
@@ -134,7 +131,7 @@ async function filterImage(imageData, description, page, thumbnail, background) 
   const result = await scheduledAnalysis(imageData, {...profile, analysis}, remote, background ? settings : null);
   if (silhouettes && !result.retry) {
     if (!result.ok || typeof result.personDetected !== "boolean" ||
-        (result.personDetected && !(background ? result.background : result.maskData))) throw Error(result.error || "Person segmentation unavailable.");
+        (result.personDetected && !result.maskData)) throw Error(result.error || "Person segmentation unavailable.");
     return {...result,settings};
   }
   if (settings.mode === "personBlur" && !result.retry) {
@@ -147,7 +144,7 @@ async function filterImage(imageData, description, page, thumbnail, background) 
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || message.type !== "filterImage") return false;
-  filterImage(message.imageData, message.description, sender.url || sender.tab?.url, message.thumbnail, message.background === true)
+  filterImage(message.imageData, message.description, sender.url || sender.tab?.url, message.thumbnail, message.background === true, sender.tab?.url)
     .then(sendResponse)
     .catch(error => sendResponse({ ok: false, coverWholeImage: true, error: error.message }));
   return true;
@@ -159,7 +156,7 @@ async function configure(enabled, input) {
   const registrations = await chrome.scripting.getRegisteredContentScripts({ids:["filter"]});
   const script = {id:"filter", matches:["http://*/*","https://*/*"], allFrames:true,
     excludeMatches:rules.excluded.map(site=>"*://*."+site+"/*"), runAt:"document_start",
-    css:input?.presentation==="loading"?["gate.css","loading.css"]:["gate.css"], js:["helpers.js","policy.js","text.js","people-backgrounds.js","content-script.js"]};
+    css:input?.presentation==="loading"?["gate.css","loading.css"]:["gate.css"], js:["helpers.js","policy.js","text.js","background-paint.js","people-backgrounds.js","content-script.js"]};
   if(enabled){
     if(registrations.length) await chrome.scripting.updateContentScripts([script]);
     else await chrome.scripting.registerContentScripts([script]);
@@ -193,7 +190,7 @@ async function applySettings(input, owned = true) {
     await Promise.allSettled(tabs.filter(tab => !FilterPolicy.excludes(new URL(tab.url).hostname, rules.excluded)).map(async tab => {
       const target = {tabId:tab.id, allFrames:true};
       await chrome.scripting.insertCSS({target,files:["gate.css"]});
-      await chrome.scripting.executeScript({target,files:["helpers.js","policy.js","text.js","people-backgrounds.js","content-script.js"]});
+      await chrome.scripting.executeScript({target,files:["helpers.js","policy.js","text.js","background-paint.js","people-backgrounds.js","content-script.js"]});
     }));
   }
 }

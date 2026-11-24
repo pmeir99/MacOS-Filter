@@ -37,7 +37,9 @@ async function refresh() {
 }
 async function edit(field,value) {
   if (saving || !site) return;
-  saving=true;render();el("status").textContent="Saving…";
+  saving=true;
+  el("siteEnabled").disabled=true;el("siteMode").disabled=true;
+  el("status").textContent="Saving…";
   try {
     const result=await send({type:"editSite",tabId:tab.id,host:site.host,field,value});
     if (!result?.ok) throw Error(result?.error || "Could not save.");

@@ -513,13 +513,16 @@
     else if (state.stop) state.stop();
   }
 
+  let revision=0;
   async function refresh() {
+    const sequence=++revision;
     const {enabled,siteRules,policy} = await chrome.storage.local.get(["enabled","siteRules","policy"]);
-    const rules = FilterPolicy.parse(siteRules);
+    if (sequence!==revision) return;
+    const rules=FilterPolicy.parse(siteRules);
+    const {excluded,profile}=FilterPolicy.pageRules(rules,location.hostname,FilterPolicy.topHostname());
     state.stop?.();
-    const profile=rules.profiles.find(rule=>FilterPolicy.excludes(location.hostname,[rule.site]));
     const mode=profile?.mode || (policy && JSON.parse(policy).mode);
-    syncEnabled(enabled && !FilterPolicy.excludes(location.hostname,rules.excluded),mode === "peopleOnly");
+    syncEnabled(enabled && !excluded,mode === "peopleOnly");
   }
   refresh();
   chrome.storage.onChanged.addListener((changes, area) => {
