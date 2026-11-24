@@ -275,6 +275,16 @@ jobs:
           FILTER_VERSION: ${{ inputs.version }}
         run: bash scripts/package-app.sh
 
+      - name: Save silhouette accuracy and latency measurements
+        if: always() && steps.claim.outputs.winner == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Silhouette-benchmark
+          path: |
+            silhouette-benchmark.json
+            silhouette-comparison/*.png
+          if-no-files-found: ignore
+
       - name: Verify packaged outputs
         if: steps.claim.outputs.winner == 'true'
         run: |

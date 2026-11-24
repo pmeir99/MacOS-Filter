@@ -13,10 +13,9 @@ globalThis.GoogleThumbnails = (() => {
     } catch { return false; }
   }
 
-  async function read(url) {
+  async function read(url, limit = 1024*1024) {
     const response = await fetch(url, {credentials:"omit", referrerPolicy:"no-referrer", redirect:"error",
       cache:"force-cache", signal:AbortSignal.timeout(10000)});
-    const limit = 1024*1024;
     if (!response.ok || !/^image\/(jpeg|png|webp|avif)(?:;|$)/i.test(response.headers.get("content-type") || "") ||
         Number(response.headers.get("content-length")) > limit || !response.body) {
       await response.body?.cancel();

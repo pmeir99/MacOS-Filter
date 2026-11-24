@@ -220,6 +220,21 @@ enum FilterHostMain {
                     return response
                 }
                 let digest = Data(SHA256.hash(data: imageData)).base64EncodedString()
+                if settings.mode == .peopleOnly {
+                    let key = ("silhouette:" + digest) as NSString
+                    let encoded: String
+                    if let cached = maskCache.object(forKey: key) {
+                        encoded = cached as String
+                    } else {
+                        encoded = try provider.silhouettePNG(for: imageData)?.base64EncodedString() ?? ""
+                        guard encoded.utf8.count < 700_000 else { throw SegmentationError.maskEncodingFailed }
+                        maskCache.setObject(encoded as NSString, forKey: key, cost: encoded.utf8.count)
+                    }
+                    var response = NativeResponse(requestID: request.requestID, ok: true,
+                                                  maskData: encoded.isEmpty ? nil : encoded)
+                    response.personDetected = !encoded.isEmpty
+                    return response
+                }
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = .sortedKeys
                 var maskSettings = settings

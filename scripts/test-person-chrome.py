@@ -11,6 +11,7 @@ import ssl
 import subprocess
 import sys
 import tempfile
+import time
 import threading
 from urllib.parse import parse_qs, urlparse
 
@@ -33,6 +34,34 @@ class Fixture(BaseHTTPRequestHandler):
                     ''.join(f'<img id="{name}" alt="{name}" width="180" height="180" src="{thumbnail(name)}">'
                             for name in identifiers) + '</main></body>').encode()
             mime = "text/html"
+        elif url.path == "/gallery":
+            wiki = "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/91/A.jpg/250px-A.jpg?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail"
+            xphoto = "https://pbs.twimg.com/media/fixture?format=jpg&name=small"
+            host = self.headers.get("Host")
+            photo = wiki if host=="en.wikipedia.org" else xphoto
+            body = f"""<!doctype html><style>
+              *{{box-sizing:border-box}} body{{margin:0;background:#e1f0e2}}main{{display:flex;gap:4px}}
+              img,.bg,figure{{width:180px;height:180px;display:block;margin:0}}
+              figure{{position:relative;clip-path:circle(48%);overflow:hidden}}
+              button{{position:absolute;right:38px;top:90px;background:#61327a;color:white;z-index:2}}
+              .bg{{position:relative;background-size:cover;background-position:center}}
+            </style><main>
+              <figure><picture><source srcset="{photo}"><img id="subject" src="/coffee.png"></picture><button>Save</button></figure>
+              <img id="still" loading="lazy" alt="blocked test phrase" src="/coffee.png">
+              <div class="bg" id="bg" role="img" style="background-image:url('{photo}')"><button>Details</button></div>
+              <div id="shadow"><template shadowrootmode="open"><img id="inside" width="120" height="120" src="/portrait.png"></template></div>
+            </main><img id="pair" width="512" height="256" style="width:512px;height:256px" src="/pair.png">""".encode()
+            mime = "text/html"
+        elif url.path == "/pair.png":
+            face = Image.open(portrait).convert("RGB").resize((256,256))
+            pair = Image.new("RGB",(512,256))
+            pair.paste(face,(0,0)); pair.paste(face.transpose(Image.Transpose.FLIP_LEFT_RIGHT),(256,0))
+            buf = BytesIO(); pair.save(buf,format="PNG"); body=buf.getvalue()
+            mime = "image/png"
+        elif url.path in ["/coffee.png","/portrait.png"] or url.path.startswith(("/wikipedia/","/media/")):
+            body = (coffee if url.path=="/coffee.png" else portrait).read_bytes()
+            mime = "image/png"
+            requests.append((self.headers.get("Host"), self.headers.get("Sec-Fetch-Dest"), self.headers.get("Cookie")))
         elif url.path == "/images":
             name = parse_qs(url.query)["q"][0].removeprefix("tbn:")
             # No CORS header. The page can display these pixels but cannot read them.
@@ -86,7 +115,7 @@ with tempfile.TemporaryDirectory() as temp, sync_playwright() as pw:
         ctx=pw.chromium.launch_persistent_context(str(profile),channel="chromium",
             args=[f"--disable-extensions-except={extension}",f"--load-extension={extension}",
                   "--no-proxy-server","--disable-quic",f"--ignore-certificate-errors-spki-list={spki}",
-                  f"--host-resolver-rules=MAP www.google.com 127.0.0.1:{port},MAP encrypted-tbn0.gstatic.com 127.0.0.1:{port}"])
+                  f"--host-resolver-rules=MAP www.google.com 127.0.0.1:{port},MAP encrypted-tbn0.gstatic.com 127.0.0.1:{port},MAP en.wikipedia.org 127.0.0.1:{port},MAP thumb.wikimedia.org 127.0.0.1:{port},MAP x.com 127.0.0.1:{port},MAP pbs.twimg.com 127.0.0.1:{port}"])
         options=ctx.new_page()
         options.goto(f"chrome-extension://{extension_id}/options.html")
         options.locator("#enabled").wait_for()
@@ -131,6 +160,61 @@ with tempfile.TemporaryDirectory() as temp, sync_playwright() as pw:
         for name in identifiers:
             assert any(n==name and dest=="empty" and cookie is None for n,dest,cookie in requests), requests
         print("Real Chrome extension + packaged Vision host: portrait blurred; coffee unchanged pixel-for-pixel; layout preserved; credential-free CDN fallback passed.",flush=True)
+        def setting(key, value):
+            options.evaluate("""async ([key,value])=>{const r=await chrome.runtime.sendMessage({type:'editSettings',key,value});if(!r.ok)throw Error(r.error);}""",[key,value])
+        setting("enabled",False)
+        setting("mode","peopleOnly")
+        setting("overlayStyle","blur")
+        setting("siteRules.products","blocked test phrase")
+        for domain in ["en.wikipedia.org","x.com"]:
+            page.goto("https://"+domain+"/gallery")
+            subject=page.locator("#subject")
+            subject.evaluate("img=>img.decode()")
+            page.locator("#inside").evaluate("img=>img.decode()")
+            page.locator("#still").evaluate("img=>img.decode()")
+            page.locator("#pair").evaluate("img=>img.decode()")
+            page.locator("#bg").evaluate("async el=>{const i=new Image();i.src=getComputedStyle(el).backgroundImage.slice(5,-2);await i.decode()}")
+            def snap(selector):
+                return Image.open(BytesIO(page.locator(selector).screenshot())).convert("RGB")
+            selectors=["figure","#still","#bg","#inside","#pair","figure button","#bg button"]
+            baseline={key:snap(key) for key in selectors}
+            bounds={key:page.locator(key).bounding_box() for key in selectors}
+            setting("publicMedia",False)
+            setting("enabled",True)
+            page.wait_for_selector('#subject[data-macos-filter-status="unscanned"]')
+            assert not ImageChops.difference(baseline["figure"],snap("figure")).getbbox()
+            t0=time.perf_counter()
+            setting("publicMedia",True)
+            for selector in ["#subject","#inside","#pair"]:
+                page.wait_for_selector(selector+'[data-macos-filter-status="people-masked"]',timeout=45000)
+            page.wait_for_selector('#still[data-macos-filter-status="no-person-detected"]')
+            page.wait_for_selector('#bg[data-macos-filter-background="people-masked"]')
+            print(f"{domain} fixture: gallery decisions after settings save in {(time.perf_counter()-t0)*1000:.0f} ms",flush=True)
+            assert all(page.locator(key).bounding_box()==bounds[key] for key in selectors)
+            for key in ["#still","figure button","#bg button"]:
+                assert not ImageChops.difference(baseline[key],snap(key)).getbbox(),key
+            for key in ["figure","#bg","#inside","#pair"]:
+                delta=ImageChops.difference(baseline[key],snap(key))
+                assert delta.getbbox(),key
+                assert not delta.crop((0,0,5,5)).getbbox(),(key,"background changed")
+            pair_delta=ImageChops.difference(baseline["#pair"],snap("#pair"))
+            assert pair_delta.crop((100,45,125,70)).getbbox() and pair_delta.crop((386,45,411,70)).getbbox(),"missed one of two faces"
+            figure_delta=ImageChops.difference(baseline["figure"],snap("figure"))
+            assert figure_delta.crop((70,29,90,52)).getbbox(),"portrait face remained unchanged"
+            assert not figure_delta.crop((14,30,35,45)).getbbox(),"background beside subject changed"
+            proof=Path("silhouette-comparison");proof.mkdir(exist_ok=True)
+            baseline["figure"].save(proof/(domain+"-before.png"))
+            snap("figure").save(proof/(domain+"-after.png"))
+            # Recycle one element from a human to a blob containing a non-person.
+            page.locator("#pair").evaluate("""async img=>{const res=await fetch('/coffee.png');img.src=URL.createObjectURL(await res.blob());}""")
+            page.wait_for_selector('#pair[data-macos-filter-status="no-person-detected"]')
+            assert page.locator("#pair").get_attribute("data-macos-filter-overlay") is None
+            assert any(host in ["thumb.wikimedia.org","pbs.twimg.com"] and dest=="empty" and cookie is None
+                       for host,dest,cookie in requests)
+            setting("enabled",False)
+            page.wait_for_selector('#bg[data-macos-filter-background]',state="detached")
+            assert not ImageChops.difference(baseline["figure"],snap("figure")).getbbox()
+        print("Silhouettes passed: face, pair, background pixels, no-person, rounded clip, buttons, CSS background, shadow DOM, responsive picture, lazy image and recycled blob.",flush=True)
         ctx.close()
     finally:
         server.shutdown()

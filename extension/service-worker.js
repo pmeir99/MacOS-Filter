@@ -1,4 +1,4 @@
-importScripts("helpers.js","policy.js","settings.js","google-thumbnails.js");
+importScripts("helpers.js","policy.js","settings.js","google-thumbnails.js","public-media.js","background-paint.js");
 
 const HOST_NAME = "com.pmeir99.macos_filter";
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -60,8 +60,8 @@ function nativeRequest(action, imageData, profile) {
 let active = 0;
 const waiting = [];
 let queuedBytes = 0;
-async function scheduledAnalysis(imageData, profile, thumbnail) {
-  const cost = thumbnail ? 1400000 : imageData?.length;
+async function scheduledAnalysis(imageData, profile, thumbnail, paintSettings) {
+  const cost = thumbnail ? 4*Math.ceil(thumbnail.limit/3) : imageData?.length;
   if (!thumbnail && (typeof imageData !== "string" || !imageData.length || imageData.length > 4 * Math.ceil(MAX_IMAGE_BYTES/3))) throw Error("Invalid local image payload.");
   if (active >= 2) {
     if (waiting.length >= 64 || queuedBytes + cost > 32*1024*1024) return {retry:true};
@@ -70,13 +70,18 @@ async function scheduledAnalysis(imageData, profile, thumbnail) {
     queuedBytes -= cost;
   } else active++;
   try {
-    if (thumbnail) imageData = await GoogleThumbnails.read(thumbnail);
-    return await nativeRequest('segmentWithPolicy',imageData,profile);
+    if (thumbnail) imageData = await GoogleThumbnails.read(thumbnail.url, thumbnail.limit);
+    const result = await nativeRequest("segmentWithPolicy",imageData,profile);
+    if (paintSettings && result.ok && result.personDetected && result.maskData) {
+      result.background = await BackgroundPaint.render(imageData,result.maskData,paintSettings);
+      delete result.maskData;
+    }
+    return result;
   }
   finally { const next=waiting.shift(); if(next) next(); else active--; }
 }
 
-async function filterImage(imageData, description, page, thumbnail) {
+async function filterImage(imageData, description, page, thumbnail, background) {
   const host = new URL(page).hostname;
   if (!current) await initialize();
   if (!current) throw Error("The local helper is unavailable.");
@@ -86,15 +91,29 @@ async function filterImage(imageData, description, page, thumbnail) {
   const profile = rules.profiles.find(rule => FilterPolicy.excludes(host,[rule.site]));
   if (profile) settings.mode = profile.mode;
   const labels = FilterPolicy.pattern(rules.products);
-  if (settings.mode !== "personBlur" && labels && labels.test(description || "")) return {ok:true,coverWholeImage:true,settings:{...settings,overlayColor:"#000000",opacity:1,overlayStyle:"solid"}};
+  const silhouettes = settings.mode === "peopleOnly";
+  if (background && !silhouettes) return {ok:true,skipped:true};
+  if (!silhouettes && settings.mode !== "personBlur" && labels && labels.test(description || "")) return {ok:true,coverWholeImage:true,settings:{...settings,overlayColor:"#000000",opacity:1,overlayStyle:"solid"}};
   if (settings.mode === "entireImage") {
     return { ok: true, coverWholeImage: true, settings };
   }
-  if (thumbnail && (settings.mode !== "personBlur" || !GoogleThumbnails.eligible(thumbnail,page)))
-    throw Error("This thumbnail is outside the permitted Google Search source.");
-  if (imageData === undefined && !thumbnail) return {ok:true,needsPixels:true,personMode:settings.mode==="personBlur"};
+  let remote;
+  if (thumbnail) {
+    if ((silhouettes || settings.mode === "personBlur") && GoogleThumbnails.eligible(thumbnail,page))
+      remote = {url:thumbnail,limit:1024*1024};
+    else if (silhouettes && current.publicMedia && PublicMedia.eligible(thumbnail,page))
+      remote = {url:thumbnail,limit:MAX_IMAGE_BYTES};
+    else throw Error("This image has no permitted pixel source.");
+  }
+  if (imageData === undefined && !remote)
+    return {ok:true,needsPixels:true,personMode:silhouettes || settings.mode==="personBlur",silhouettes};
   const {siteRules, ...analysis} = current;
-  const result = await scheduledAnalysis(imageData, {...profile, analysis}, thumbnail);
+  const result = await scheduledAnalysis(imageData, {...profile, analysis}, remote, background ? settings : null);
+  if (silhouettes && !result.retry) {
+    if (!result.ok || typeof result.personDetected !== "boolean" ||
+        (result.personDetected && !(background ? result.background : result.maskData))) throw Error("Person segmentation unavailable.");
+    return {...result,settings};
+  }
   if (settings.mode === "personBlur" && !result.retry) {
     if (!result.ok || typeof result.personDetected !== "boolean") throw Error("Person detection unavailable.");
     return {ok:true,personDetected:result.personDetected,coverWholeImage:result.personDetected,
@@ -105,7 +124,7 @@ async function filterImage(imageData, description, page, thumbnail) {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || message.type !== "filterImage") return false;
-  filterImage(message.imageData, message.description, sender.url || sender.tab?.url, message.thumbnail)
+  filterImage(message.imageData, message.description, sender.url || sender.tab?.url, message.thumbnail, message.background === true)
     .then(sendResponse)
     .catch(error => sendResponse({ ok: false, coverWholeImage: true, error: error.message }));
   return true;
@@ -117,7 +136,7 @@ async function configure(enabled, input) {
   const registrations = await chrome.scripting.getRegisteredContentScripts({ids:["filter"]});
   const script = {id:"filter", matches:["http://*/*","https://*/*"], allFrames:true,
     excludeMatches:rules.excluded.map(site=>"*://*."+site+"/*"), runAt:"document_start",
-    css:input?.presentation==="loading"?["gate.css","loading.css"]:["gate.css"], js:["helpers.js","policy.js","text.js","content-script.js"]};
+    css:input?.presentation==="loading"?["gate.css","loading.css"]:["gate.css"], js:["helpers.js","policy.js","text.js","people-backgrounds.js","content-script.js"]};
   if(enabled){
     if(registrations.length) await chrome.scripting.updateContentScripts([script]);
     else await chrome.scripting.registerContentScripts([script]);
@@ -151,7 +170,7 @@ async function applySettings(input, owned = true) {
     await Promise.allSettled(tabs.filter(tab => !FilterPolicy.excludes(new URL(tab.url).hostname, rules.excluded)).map(async tab => {
       const target = {tabId:tab.id, allFrames:true};
       await chrome.scripting.insertCSS({target,files:["gate.css"]});
-      await chrome.scripting.executeScript({target,files:["helpers.js","policy.js","text.js","content-script.js"]});
+      await chrome.scripting.executeScript({target,files:["helpers.js","policy.js","text.js","people-backgrounds.js","content-script.js"]});
     }));
   }
 }

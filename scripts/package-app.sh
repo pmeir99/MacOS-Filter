@@ -124,5 +124,7 @@ if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
   curl -fsSL --retry 3 'https://raw.githubusercontent.com/scikit-image/scikit-image/e8a42ba85aaf5fd9322ef9ca51bc21063b22fcae/skimage/data/coffee.png' -o "$MODEL_DIR/coffee.png"
   "$MODEL_DIR/qa/bin/pip" -q install playwright==1.55.0
   "$MODEL_DIR/qa/bin/playwright" install chromium
+  curl -fsSL --retry 3 -H 'Accept: application/octet-stream' 'https://api.github.com/repos/ultralytics/assets/releases/assets/178786181' -o "$MODEL_DIR/coco128-seg.zip"
+  "$MODEL_DIR/qa/bin/python" scripts/evaluate-silhouettes.py "$HOST" "$MODEL_DIR/coco128-seg.zip"
   "$MODEL_DIR/qa/bin/python" scripts/test-person-chrome.py "$SHIPPED" "$MODEL_DIR/portrait.png" "$MODEL_DIR/coffee.png"
 fi

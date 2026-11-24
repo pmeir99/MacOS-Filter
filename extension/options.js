@@ -1,5 +1,5 @@
 const $ = id => document.getElementById(id);
-const modeNames = {personBlur:"Blur images containing people",allPeople:"All detected people",faces:"Faces",entireImage:"Entire image",adaptive:"Adaptive",skin:"Skin mask (experimental)",policy:"Seven levels (experimental)"};
+const modeNames = {peopleOnly:"Mask people only",personBlur:"Blur images containing people",allPeople:"All detected people",faces:"Faces",entireImage:"Entire image",adaptive:"Adaptive",skin:"Skin mask (experimental)",policy:"Seven levels (experimental)"};
 const levels = ["Explicit activity","Explicit nudity","Swimwear or lingerie","Substantial exposure","Some skin visible","Covered clothing","Long, loose coverage"];
 const levelOptions = Object.fromEntries(levels.map((label,i)=>[i+1,(i+1)+" · "+label]));
 let settings, revision=0;
@@ -52,6 +52,9 @@ function field(section,key,title,type,values) {
 }
 function styles(){
   const personMode = settings.mode === "personBlur";
+  $("publicMedia").closest("label").hidden = settings.mode !== "peopleOnly" && !settings.siteRules.profiles.some(p=>p.mode==="peopleOnly");
+  $("otherModesHelp").hidden = settings.mode === "peopleOnly";
+  $("peopleOnlyHelp").hidden = settings.mode !== "peopleOnly";
   $("personHelp").hidden = !personMode;
   if ($("overlayStyle")) $("overlayStyle").closest("label").hidden = personMode;
   for(const id of ["opacity","overlayColor","blurRadius"]) {
@@ -84,6 +87,7 @@ async function init() {
   field("filter","enabled","Filter websites","checkbox");
   field("filter","mode","What to cover","select",modeNames);
   field("filter","siteRules.presentation","While scanning","select",{placeholders:"Show placeholders",loading:"Show loading screen"});
+  field("render","publicMedia","Allow public Wikipedia and X image requests","checkbox");
   field("render","overlayStyle","Mask style","select",{solid:"Solid color",blur:"Gaussian blur"});
   field("render","overlayColor","Mask color","color");
   field("render","opacity","Solid mask opacity","range",[0.25,1,0.01]);
