@@ -28,7 +28,7 @@ function getPort() {
   return nativePort;
 }
 
-function nativeRequest(action, imageData) {
+function nativeRequest(action, imageData, profile) {
   const requestID = crypto.randomUUID();
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -41,6 +41,8 @@ function nativeRequest(action, imageData) {
         protocolVersion: 1,
         requestID,
         action,
+        modeOverride: profile?.mode,
+        cutoffOverride: profile?.cutoff,
         imageData: imageData || undefined
       });
     } catch (error) {
@@ -53,17 +55,20 @@ function nativeRequest(action, imageData) {
 
 let active = 0;
 const waiting = [];
-async function scheduledAnalysis(imageData) {
+let queuedBytes = 0;
+async function scheduledAnalysis(imageData, profile) {
   if (typeof imageData !== "string" || !imageData.length || imageData.length > 4 * Math.ceil(MAX_IMAGE_BYTES/3)) throw Error("Invalid local image payload.");
   if (active >= 2) {
-    if (waiting.length >= 64) throw Error("Local image queue is full.");
+    if (waiting.length >= 64 || queuedBytes + imageData.length > 32*1024*1024) throw Error("Local image queue is full.");
+    queuedBytes += imageData.length;
     await new Promise(resolve => waiting.push(resolve));
+    queuedBytes -= imageData.length;
   } else active++;
-  try { return await nativeRequest('segment',imageData); }
+  try { return await nativeRequest('segment',imageData,profile); }
   finally { const next=waiting.shift(); if(next) next(); else active--; }
 }
 
-async function filterImage(imageData, description) {
+async function filterImage(imageData, description, host) {
   const settingsResponse = await nativeRequest("getSettings");
   if (!settingsResponse.ok || !settingsResponse.settings) {
     throw new Error("The Mac app did not return filtering settings.");
@@ -71,19 +76,22 @@ async function filterImage(imageData, description) {
   const settings = MacOSFilterHelpers.normalizeSettings(settingsResponse.settings);
   if (!settings.enabled) return { ok: true, settings };
   const {siteRules} = await chrome.storage.local.get("siteRules");
-  const labels = FilterPolicy.pattern(FilterPolicy.parse(siteRules).products);
+  const rules = FilterPolicy.parse(siteRules);
+  const profile = rules.profiles.find(rule => FilterPolicy.excludes(host,[rule.site]));
+  if (profile) settings.mode = profile.mode;
+  const labels = FilterPolicy.pattern(rules.products);
   if (labels && labels.test(description || "")) return {ok:true,coverWholeImage:true,settings:{...settings,opacity:1,overlayStyle:"solid"}};
   if (settings.mode === "entireImage") {
     return { ok: true, coverWholeImage: true, settings };
   }
   if (imageData === undefined) return {ok:true,needsPixels:true};
-  const result = await scheduledAnalysis(imageData);
+  const result = await scheduledAnalysis(imageData, profile);
   return { ...result, settings: result.coverWholeImage || !result.ok ? {...settings, opacity:1, overlayStyle:'solid'} : settings };
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || message.type !== "filterImage") return false;
-  filterImage(message.imageData, message.description)
+  filterImage(message.imageData, message.description, new URL(sender.tab?.url || sender.url).hostname)
     .then(sendResponse)
     .catch(error => sendResponse({ ok: false, coverWholeImage: true, error: error.message }));
   return true;

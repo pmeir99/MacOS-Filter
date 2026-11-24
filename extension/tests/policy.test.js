@@ -20,3 +20,10 @@ test("site phrases and product description rules",()=>{
   assert.ok(pattern(p.products).test("Lingerie set"));
   assert.throws(()=>parse({sitePhrases:"missing separator"}));
 });
+test("image profiles prefer specific domains and reject invalid input",()=>{
+  const rule=(site,cutoff=0.65)=>({site,cutoff,mode:"adaptive"});
+  const profiles=parse({profiles:[rule("example.org"),rule("shop.example.org")]}).profiles;
+  assert.equal(profiles.find(p=>excludes("us.shop.example.org",[p.site])).site,"shop.example.org");
+  assert.throws(()=>parse({profiles:[rule("example.org",1.2)]}));
+  assert.throws(()=>parse({profiles:[rule("example.org"),rule("Example.org")]}));
+});

@@ -16,7 +16,7 @@ body{margin:30px;background:#eef1f5;font:18px system-ui}main{display:grid;grid-t
 figure{position:relative;margin:0;width:120px;height:60px;border-radius:14px;overflow:hidden;transform:translateX(8px)}
 img{display:block;width:120px;height:60px;object-fit:cover}
 button{position:absolute;top:6px;right:6px;background:white;color:black;border:0;z-index:1}
-</style><main><figure><img src="PHOTO"><button>Save</button></figure><aside>Product details</aside></main><p>example phrase</p>""".replace("PHOTO",photo_url)
+</style><main><figure><img src="PHOTO"><button>Save</button></figure><aside>Product details</aside></main><p>example <strong>phrase</strong></p>""".replace("PHOTO",photo_url)
 output = Path("layout-comparison")
 output.mkdir(exist_ok=True)
 
@@ -54,8 +54,8 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     # Supply a deterministic native response for mask alignment only. The first
     # comparison still runs against the real disconnected-host fallback.
     sw_file=extension / "service-worker.js"
-    sw_file.write_text(sw_file.read_text().replace("function nativeRequest(action, imageData) {",
-        """async function nativeRequest(action, imageData) {
+    sw_file.write_text(sw_file.read_text().replace("function nativeRequest(action, imageData, profile) {",
+        """async function nativeRequest(action, imageData, profile) {
           const {fixtureMask}=await chrome.storage.local.get('fixtureMask');
           if (fixtureMask && action === 'segment') await new Promise(resolve=>setTimeout(resolve,700));
           if (fixtureMask) return action === 'getSettings'
@@ -88,6 +88,7 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     enable(True)
     sample.reload()
     sample.wait_for_selector("img[data-macos-filter-overlay]")
+    sample.wait_for_function("Array.from(CSS.highlights.get('mf-phrases') || []).some(range=>range.toString()==='example phrase')")
     after,b=capture("filtered")
     assert before==after, (before,after)
     # Phrase filtering changes text too. Compare the product row separately.
@@ -102,6 +103,14 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     bounds=tuple(round(v) for v in (box["x"],box["y"],box["x"]+box["width"],box["y"]+box["height"]))
     assert delta.crop(bounds).getbbox() is None
     sample.locator("button").click()
+    sample.evaluate("""async () => {
+      const img=document.querySelector('img'), parent=img.parentElement;
+      img.remove(); await new Promise(resolve=>setTimeout(resolve,25));
+      parent.prepend(img);
+    }""")
+    sample.wait_for_selector("img[data-macos-filter-overlay]")
+    _,recycled=capture("recycled-card")
+    assert recycled.getpixel((60,62))==(0,0,0)
     mask=Image.new("RGBA",(160,90),(0,0,0,0))
     mask.paste((255,255,255,255),(0,0,80,90))
     buffer=BytesIO()
@@ -149,11 +158,21 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     assert rect["width"] == 120 and rect["height"] == 60
     assert page.locator("[data-macos-filter-overlay]").bounding_box() == rect
     page.goto(base + "/rules.html")
+    page.locator("#addProfile").click()
+    page.get_by_role("textbox",name="Website",exact=True).fill("127.0.0.1")
+    page.get_by_label("Image mode",exact=True).select_option("entireImage")
     page.locator("#excluded").fill("localhost")
     page.locator("button").click()
     page.wait_for_function("document.querySelector('output').value.startsWith('Saved')")
     page.goto(f"http://localhost:{server.server_port}")
     assert page.locator("p").inner_text() == "example phrase"
     assert page.locator("[data-macos-filter-overlay]").count() == 0
+    page.goto(base + "/rules.html")
+    page.wait_for_selector("#profiles input")
+    assert page.get_by_label("Image mode",exact=True).input_value()=="entireImage"
+    page.evaluate("chrome.storage.local.set({fixtureMask:'test'})")
+    sample.goto(url)
+    sample.wait_for_selector("img[data-macos-filter-overlay]")
+    assert not sample.locator("feImage").count()
     ctx.close()
 server.shutdown()

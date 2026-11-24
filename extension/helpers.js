@@ -5,7 +5,7 @@
     const opacity = Number(settings && settings.opacity);
     return {
       enabled: Boolean(settings && settings.enabled),
-      mode: settings && settings.mode === "entireImage" ? "entireImage" : "allPeople",
+      mode: settings && ["entireImage","faces","adaptive","allPeople"].includes(settings.mode) ? settings.mode : "allPeople",
       overlayStyle: settings && settings.overlayStyle === "blur" ? "blur" : "solid",
       overlayColor: validColor(settings && settings.overlayColor) ? settings.overlayColor : "#000000",
       opacity: Number.isFinite(opacity) ? Math.max(0.25, Math.min(1, opacity)) : 1

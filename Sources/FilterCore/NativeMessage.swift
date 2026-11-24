@@ -9,12 +9,16 @@ public struct NativeRequest: Codable {
     public let protocolVersion: Int
     public let requestID: String
     public let action: NativeAction
+    public let modeOverride: FilterMode?
+    public let cutoffOverride: Double?
     public let imageData: String?
 
     public init(protocolVersion: Int = 1, requestID: String, action: NativeAction, imageData: String? = nil) {
         self.protocolVersion = protocolVersion
         self.requestID = requestID
         self.action = action
+        self.modeOverride = nil
+        self.cutoffOverride = nil
         self.imageData = imageData
     }
 

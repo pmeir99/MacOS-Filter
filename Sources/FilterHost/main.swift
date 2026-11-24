@@ -92,13 +92,18 @@ enum FilterHostMain {
     }
 
     private static func handle(_ request: NativeRequest) -> NativeResponse {
-        let settings = SettingsStore.load()
+        var settings = SettingsStore.load()
+        if let mode = request.modeOverride { settings.mode = mode }
+        if let cutoff = request.cutoffOverride { settings.blockThreshold = min(0.95, max(0.1, cutoff)) }
         switch request.action {
         case .getSettings:
             return NativeResponse(requestID: request.requestID, ok: true, settings: settings)
         case .segment:
             guard settings.enabled else {
                 return NativeResponse(requestID: request.requestID, ok: false, error: "Filtering is disabled in the Mac app.")
+            }
+            if settings.mode == .entireImage {
+                return NativeResponse(requestID: request.requestID, ok: true, coverWholeImage: true)
             }
             guard let encoded = request.imageData,
                   let imageData = Data(base64Encoded: encoded) else {

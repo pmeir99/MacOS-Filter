@@ -107,7 +107,7 @@
       overlays.set(image,{frozen,previousContent,contentPriority,svg:resource,mask,original,priority,applied:image.style.getPropertyValue("filter")});
       image.setAttribute("data-macos-filter-overlay","true");
       watched.add(image);
-      sizes.observe(image);
+      if (partial) sizes.observe(image);
       setMaskGeometry(image);
     }
 
@@ -187,11 +187,18 @@
         coverOnFailure(image, "Image could not be decoded.");
       } else if (!image.complete || image.naturalWidth === 0) {
         hideImage(image);
-        image.addEventListener("load", () => processImage(image), { once: true });
-        image.addEventListener("error", () => coverOnFailure(image, "Image load failed."), { once: true });
+
       } else {
         processImage(image);
       }
+    }
+
+    function forget(image) {
+      attempts.delete(image);
+      currentURL.delete(image);
+      removeOverlay(image);
+      restoreImage(image);
+      image.removeAttribute("data-mf-reviewed");
     }
 
     function scan(node) {
@@ -205,12 +212,12 @@
           record.addedNodes.forEach(scan);
           record.removedNodes.forEach(node => {
             if (node instanceof HTMLImageElement) {
-              removeOverlay(node);
-              restoreImage(node);
+              forget(node);
+              if (node.isConnected) watchImage(node);
             }
             if (node.querySelectorAll) node.querySelectorAll("img").forEach(image => {
-              removeOverlay(image);
-              restoreImage(image);
+              forget(image);
+              if (image.isConnected) watchImage(image);
             });
           });
         } else if (record.type === "attributes" && record.target instanceof HTMLImageElement) {
@@ -231,6 +238,7 @@
     let releaseTimer;
     function checkPage() {
       if (stopped || !document.documentElement || document.documentElement.hasAttribute("data-mf-page-ready") || document.readyState === "loading") return;
+      if (getComputedStyle(document.documentElement).getPropertyValue("--mf-loading-mode").trim() !== "1") return;
       const pending = Array.from(document.images).some(img => {
         const box=img.getBoundingClientRect();
         return box.width && box.height && box.bottom>0 && box.right>0 && box.top<innerHeight && box.left<innerWidth && !img.hasAttribute("data-mf-reviewed");
@@ -242,24 +250,16 @@
     else checkPage();
     const deadline=setTimeout(()=>document.documentElement?.setAttribute("data-mf-page-ready",""),8000);
 
-    const updateAll = () => {
-      for (const image of watched) {
-        if (!image.isConnected) {
-          removeOverlay(image);
-          continue;
-        }
-        const current = image.currentSrc || image.src;
-        if (currentURL.get(image) !== current) {
-          currentURL.delete(image);
-          processImage(image);
-          continue;
-        }
-        const overlay = overlays.get(image);
-        if (overlay) setMaskGeometry(image, overlay);
-      }
+    // The filter moves with its image. ResizeObserver handles size changes;
+    // capturing load also catches responsive candidates selected by Chrome.
+    const loaded = event => {
+      if (event.target instanceof HTMLImageElement) processImage(event.target);
     };
-    addEventListener("scroll", updateAll, { passive: true, capture: true });
-    addEventListener("resize", updateAll, { passive: true });
+    const failed = event => {
+      if (event.target instanceof HTMLImageElement) coverOnFailure(event.target, "Image load failed.");
+    };
+    document.addEventListener("load", loaded, true);
+    document.addEventListener("error", failed, true);
 
     state.stop = () => {
       stopped = true;
@@ -274,8 +274,8 @@
         delete image.dataset.macosFilterStatus;
       }
       watched.clear();
-      removeEventListener("scroll", updateAll, true);
-      removeEventListener("resize", updateAll);
+      document.removeEventListener("load", loaded, true);
+      document.removeEventListener("error", failed, true);
       state.active = false;
       state.stop = null;
     };

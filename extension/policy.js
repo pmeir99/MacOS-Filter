@@ -8,7 +8,16 @@ globalThis.FilterPolicy = (() => {
     return hosts;
   }
   function parse(input = {}) {
-    return { blocked: domains(input.blocked), excluded: domains(input.excluded), phrases: lines(input.phrases), products: lines(input.products), sitePhrases: lines(input.sitePhrases).map(row => {
+    const profiles = (input.profiles || []).map(profile => {
+      const hosts = domains(profile.site);
+      const modes = ["adaptive","allPeople","faces","entireImage"];
+      if (hosts.length !== 1 || !modes.includes(profile.mode)) throw Error("Choose a domain and an image mode.");
+      const cutoff = Number(profile.cutoff);
+      if (!Number.isFinite(cutoff) || cutoff < 0.1 || cutoff > 0.95) throw Error("Choose a cutoff between 0.10 and 0.95.");
+      return {site:hosts[0],mode:profile.mode,cutoff};
+    }).sort((a,b) => b.site.length-a.site.length);
+    if (new Set(profiles.map(p=>p.site)).size !== profiles.length) throw Error("Each domain can have one image profile.");
+    return { profiles, blocked: domains(input.blocked), excluded: domains(input.excluded), phrases: lines(input.phrases), products: lines(input.products), sitePhrases: lines(input.sitePhrases).map(row => {
       const split = row.indexOf('|');
       if (split < 1 || !row.slice(split+1).trim()) throw Error('Use domain | phrase for each site rule.');
       return {site:domains(row.slice(0,split))[0], phrase:row.slice(split+1).trim()};
