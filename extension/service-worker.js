@@ -66,7 +66,7 @@ let queuedBytes = 0;
 async function scheduledAnalysis(imageData, profile) {
   if (typeof imageData !== "string" || !imageData.length || imageData.length > 4 * Math.ceil(MAX_IMAGE_BYTES/3)) throw Error("Invalid local image payload.");
   if (active >= 2) {
-    if (waiting.length >= 64 || queuedBytes + imageData.length > 32*1024*1024) throw Error("Local image queue is full.");
+    if (waiting.length >= 64 || queuedBytes + imageData.length > 32*1024*1024) return {retry:true};
     queuedBytes += imageData.length;
     await new Promise(resolve => waiting.push(resolve));
     queuedBytes -= imageData.length;
@@ -129,7 +129,9 @@ async function applySettings(settings) {
   const rules = FilterPolicy.parse(siteRules);
   const previous = await chrome.storage.local.get(["enabled","siteRules","policy"]);
   const policy = JSON.stringify(settings);
-  await configure(enabled, siteRules);
+  if (!current || previous.enabled !== enabled || JSON.stringify(previous.siteRules) !== JSON.stringify(siteRules)) {
+    await configure(enabled, siteRules);
+  }
   parsed = rules;
   current = settings;
   await chrome.storage.local.set({enabled, siteRules, policy});

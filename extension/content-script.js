@@ -11,6 +11,7 @@
     const originalVisibility = new WeakMap();
     const currentURL = new WeakMap();
     const attempts = new WeakMap();
+    const delays = new WeakMap();
     const overlays = new WeakMap();
     const watched = new Set();
     let observer = null;
@@ -158,6 +159,18 @@
           if (result) result.snapshot=snapshot;
         }
         if (stopped || attempts.get(image)!==attempt || !image.isConnected || (image.currentSrc || image.src)!==url || currentURL.get(image) !== url) return;
+        if (result?.retry) {
+          // Release the snapshot before retrying. Keep the image gated while other tabs drain.
+          const delay = Math.min((delays.get(image) || 150) * 2, 4000);
+          delays.set(image, delay);
+          setTimeout(() => {
+            if (stopped || attempts.get(image) !== attempt || !image.isConnected) return;
+            currentURL.delete(image);
+            enqueue(image);
+          }, delay);
+          return;
+        }
+        delays.delete(image);
         if (result && result.ok === true && result.settings && result.settings.enabled === false) {
           removeOverlay(image);
           delete image.dataset.macosFilterStatus;

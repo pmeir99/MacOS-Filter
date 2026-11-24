@@ -34,7 +34,7 @@ final class ProtocolTests: XCTestCase {
 
 final class BrowserRulesTests: XCTestCase {
     func testSettingsFromEarlierReleasesAndNewProfiles() throws {
-        let old = Data(#"{"enabled":true,"mode":"faces","overlayStyle":"solid","overlayColor":"#000000","opacity":1}"#.utf8)
+        let old = Data(##"{"enabled":true,"mode":"faces","overlayStyle":"solid","overlayColor":"#000000","opacity":1}"##.utf8)
         var settings = try JSONDecoder().decode(FilterSettings.self, from: old)
         XCTAssertNil(settings.siteRules)
         var rules = BrowserRules()

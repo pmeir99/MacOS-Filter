@@ -116,7 +116,6 @@ final class AppUpdater: ObservableObject {
                     return source
                 }.value
                 try Task.checkCancellation()
-                try Task.checkCancellation()
                 try? FileManager.default.removeItem(at: UpdateFiles.root.appendingPathComponent("last-error"))
                 let process = Process()
                 process.executableURL = installed.appendingPathComponent("Contents/Helpers/FilterUpdate")

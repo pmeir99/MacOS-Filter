@@ -11,7 +11,7 @@ Coverage is experimental. Browser-internal pages, arbitrary CSS/canvas, and all 
 
 In the Mac app’s Websites and text section, choose immediate display with image placeholders or a loading screen for the initial visible images. After eight seconds the page opens and unfinished images retain individual placeholders. Reload existing tabs after changing this option.
 
-The filter issues no HTTP requests for inference or model downloads at runtime. Websites still load their own content normally. The bundled native host processes embedded raster bytes or already-loaded image pixels. A cross-origin image that denies pixel access gets a full cover. Local snapshots are limited to four megapixels and eight MiB. Android and cloud services are not involved. The app autosaves valid edits, and the background helper pushes them to Chrome. The extension has a fixed ID. Use Software Update in the app for verified downloads and automatic relaunch. Online update checks default to off.
+The filter issues no HTTP requests for inference or model downloads at runtime. Websites still load their own content normally. The bundled native host processes embedded raster bytes or already-loaded image pixels. A cross-origin image that denies pixel access gets a full cover. Local snapshots are limited to four megapixels and eight MiB. The app autosaves valid edits, and the background helper pushes them to Chrome. The extension has a fixed ID. Use Software Update in the app for verified downloads and automatic relaunch. Online update checks default to off.
 
 ## Experimental visual policy
 

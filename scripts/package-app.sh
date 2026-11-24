@@ -44,6 +44,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 mkdir -p "$APP/Contents/Resources"
 MODEL_DIR="$(mktemp -d)"
+MODEL_DIR="$(cd "$MODEL_DIR" && pwd -P)"
 trap 'rm -rf "$MODEL_DIR"' EXIT
 ICONSET="$MODEL_DIR/Filter.iconset"
 mkdir -p "$ICONSET"
@@ -101,6 +102,7 @@ SWIFT
 swift "$MODEL_DIR/smoke.swift" "$SHIPPED/Contents/Resources/Nudity.mlmodelc"
 
 if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+  bash scripts/test-update.sh "$SHIPPED" "$VERSION"
   # A pinned public portrait is CI input only. It is never shipped or fetched by the app.
   curl -fsSL --retry 3 'https://raw.githubusercontent.com/scikit-image/scikit-image/e8a42ba85aaf5fd9322ef9ca51bc21063b22fcae/skimage/data/astronaut.png' -o "$MODEL_DIR/portrait.png"
   test "$(git hash-object "$MODEL_DIR/portrait.png")" = 834cda0012478c5edc8d43bade96d315dedeaab4

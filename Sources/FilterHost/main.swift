@@ -29,7 +29,7 @@ enum FilterHostMain {
     }()
 
     private static let outputLock = NSLock()
-    private static var watcher: DispatchSourceTimer?
+    private static var watcher: DispatchSourceFileSystemObject?
 
     private static func send(_ response: NativeResponse) throws {
         let frame = try NativeMessageCodec.frame(JSONEncoder().encode(response))
@@ -38,16 +38,20 @@ enum FilterHostMain {
         FileHandle.standardOutput.write(frame)
     }
 
-    private static func subscribe(initial: FilterSettings) {
+    private static func subscribe(initial: FilterSettings) throws {
         guard watcher == nil else { return }
+        let directory = SettingsStore.fileURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fd = open(directory.path, O_EVTONLY)
+        guard fd >= 0 else { throw POSIXError(.EIO) }
         var previous = initial
-        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "filter.preferences"))
-        timer.schedule(deadline: .now() + .milliseconds(250), repeating: .milliseconds(500), leeway: .milliseconds(100))
         let version = installedVersion()
-        timer.setEventHandler {
+        let queue = DispatchQueue(label: "filter.preferences")
+        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename], queue: queue)
+        let changed: () -> Void = {
             if installedVersion() != version {
                 try? send(NativeResponse(requestID: "reloadExtension", ok: true))
-                timer.cancel()
+                source.cancel()
                 return
             }
             let current = SettingsStore.load()
@@ -56,8 +60,12 @@ enum FilterHostMain {
                 try? send(NativeResponse(requestID: "settingsChanged", ok: true, settings: current))
             }
         }
-        watcher = timer
-        timer.resume()
+        source.setEventHandler(handler: changed)
+        source.setCancelHandler { close(fd) }
+        watcher = source
+        source.resume()
+        // Catch a save between the subscription snapshot and attaching the directory watch.
+        queue.async(execute: DispatchWorkItem(block: changed))
     }
 
     private static func installedVersion() -> Data? {
@@ -79,6 +87,7 @@ enum FilterHostMain {
                 try request.validate()
                 let response = handle(request)
                 try send(response)
+                if request.action == .subscribe, let settings = response.settings { try subscribe(initial: settings) }
                 }
             }
         } catch {
@@ -148,7 +157,6 @@ enum FilterHostMain {
             let opened = NSWorkspace.shared.open(app)
             return NativeResponse(requestID: request.requestID, ok: opened)
         case .subscribe:
-            subscribe(initial: settings)
             return NativeResponse(requestID: request.requestID, ok: true, settings: settings)
         case .getSettings:
             return NativeResponse(requestID: request.requestID, ok: true, settings: settings)
