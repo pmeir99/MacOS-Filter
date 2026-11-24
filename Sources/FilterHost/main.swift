@@ -7,7 +7,6 @@ import ImageIO
 import CoreGraphics
 import UniformTypeIdentifiers
 
-@main
 enum FilterHostMain {
     private static let provider = VisionPersonSegmentationProvider()
 
@@ -180,3 +179,5 @@ enum FilterHostMain {
         }
     }
 }
+
+FilterHostMain.main()
