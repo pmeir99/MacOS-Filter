@@ -6,7 +6,14 @@ globalThis.ChromeImages = (() => {
   const maxBytes = 8 * 1024 * 1024;
   const maxEncoded = 4 * Math.ceil(maxBytes / 3);
   const imageType = /^image\/(?:jpeg|png|webp|avif|gif|bmp|x-icon|vnd\.microsoft\.icon|tiff|heic|heif)(?:;|$)/i;
-  const send = (target, method, params) => chrome.debugger.sendCommand(target, method, params);
+  function send(target, method, params) {
+    let timeout;
+    const deadline = new Promise((_,reject) => {
+      timeout = setTimeout(() => reject(Error("Chrome image capture timed out.")), 1500);
+    });
+    return Promise.race([chrome.debugger.sendCommand(target, method, params), deadline])
+      .finally(() => clearTimeout(timeout));
+  }
 
   function resourceURL(value) {
     try {
@@ -113,36 +120,36 @@ globalThis.ChromeImages = (() => {
     if (!resourceURL(url) || !Number.isInteger(tabId) || !sender.documentId) throw Error("Unsupported browser image source.");
     const tab = await watch(tabId);
     if (!tab) throw Error("Chrome image access unavailable. Reload the tab after closing DevTools.");
+    const imageURL = resourceURL(url);
+    const sessions = () => sender.frameId === 0 ? [tab.sessions.get(undefined)] : [...tab.sessions.values()];
+    const candidates = () => sessions().filter(Boolean).flatMap(session => [...session.requests]
+      .filter(([,request]) => request.url === imageURL || request.firstURL === imageURL)
+      .map(([id,request]) => ({id,request,session})));
+    let loaded = candidates();
+    // CSS may discover an image before Chrome starts its request. Give the
+    // original page load a brief opportunity to supply the response.
+    if (waitForBackground && !loaded.some(({request}) => request.finished)) {
+      for (const delay of [80, 160, 320]) {
+        await new Promise(resolve => setTimeout(resolve, delay));
+        loaded = candidates();
+        if (tab.closing || loaded.some(({request}) => request.finished)) break;
+      }
+    }
+    if (tab.closing || !loaded.some(({request}) => request.finished))
+      throw Error("Image response unavailable in this tab. Reload to scan again.");
     const page = resourceURL(sender.url);
     const documents = await chrome.webNavigation.getAllFrames({tabId});
     const matching = documents?.filter(frame => resourceURL(frame.url) === page &&
       (sender.frameId === 0 ? frame.frameId === 0 : frame.frameId !== 0));
     if (matching?.length !== 1 || matching[0].documentId !== sender.documentId) throw Error("Image frame changed or is ambiguous.");
-    const sessions = sender.frameId === 0 ? [tab.sessions.get(undefined)] : [...tab.sessions.values()];
-    const matches = (await Promise.all(sessions.filter(Boolean).map(async session => {
+    const matches = (await Promise.all([...new Set(loaded.map(({session}) => session))].map(async session => {
       const tree = await send(session.target, "Page.getFrameTree").catch(() => null);
       if (!tree?.frameTree) return [];
-      const candidates = sender.frameId === 0 ? [tree.frameTree.frame] : frames(tree.frameTree);
-      return candidates.filter(frame => resourceURL(frame.url) === page).map(frame => ({frame, session}));
+      const possible = sender.frameId === 0 ? [tree.frameTree.frame] : frames(tree.frameTree);
+      return possible.filter(frame => resourceURL(frame.url) === page).map(frame => ({frame,session}));
     }))).flat();
-    // The parent target may also describe the child frame. Require exactly one
-    // target with matching image responses in this document's loader.
-    const imageURL = resourceURL(url);
-    function candidates() {
-      return matches.flatMap(({frame, session}) => [...session.requests].filter(([, request]) =>
-        request.frameId === frame.id && request.loaderId === frame.loaderId &&
-        (request.url === imageURL || request.firstURL === imageURL)).map(([id, request]) => ({id, request, session})));
-    }
-    let sources = candidates();
-    // CSS may discover an image before Chrome starts its request. Give the
-    // original page load a brief opportunity to supply the response.
-    if (waitForBackground && !sources.some(({request}) => request.finished)) {
-      for (const delay of [80, 160, 320]) {
-        await new Promise(resolve => setTimeout(resolve, delay));
-        sources = candidates();
-        if (tab.closing || sources.some(({request}) => request.finished)) break;
-      }
-    }
+    const sources = candidates().filter(({request,session}) => request.image && matches.some(({frame,session:owner}) =>
+      owner === session && request.frameId === frame.id && request.loaderId === frame.loaderId));
     if (sources.length !== 1 || !sources[0].request.finished || tab.closing)
       throw Error("Image response unavailable in this tab. Reload to scan again.");
     const {id, session} = sources[0];
@@ -163,5 +170,5 @@ globalThis.ChromeImages = (() => {
   });
   chrome.tabs.onRemoved.addListener(tabId => { tabs.delete(tabId); dismissed.delete(tabId); });
 
-  return {watch, stop, read, activeTabs: () => [...tabs.keys()], resume: tabId => dismissed.delete(tabId), maxBytes};
+  return {watch, stop, read, activeTabs: () => [...tabs.keys()], resume: tabId => dismissed.delete(tabId)};
 })();

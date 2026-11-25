@@ -229,7 +229,8 @@ with tempfile.TemporaryDirectory() as temp, sync_playwright() as pw:
                 page.wait_for_selector(selector+'[data-macos-filter-status="people-masked"]',timeout=45000)
             page.wait_for_selector('#still[data-macos-filter-status="no-person-detected"]')
             try:
-                page.wait_for_selector('#bg[data-macos-filter-background="people-masked"]')
+                page.wait_for_function("""() => document.querySelector('#bg').dataset.macosFilterBackground==='people-masked'""",
+                                       polling=100,timeout=30000)
             except Exception:
                 print("Background scan:",page.locator("#bg").evaluate("""el=>({state:el.dataset.macosFilterBackground,stage:el.dataset.macosFilterBackgroundStage,reason:el.dataset.macosFilterBackgroundReason,css:getComputedStyle(el).backgroundImage.slice(0,240),src:el.getAttribute('style')?.slice(0,240)})"""),flush=True)
                 print("Image verdicts:",page.locator("img").evaluate_all("imgs=>imgs.map(i=>[i.id,i.dataset.macosFilterStatus,i.dataset.macosFilterReason])"),flush=True)

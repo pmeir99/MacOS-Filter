@@ -31,7 +31,7 @@ async function fixture() {
       getAllFrames: async () => [{url: page, frameId: 0, documentId}]
     }
   };
-  const global = {URL, chrome, setTimeout};
+  const global = {URL, chrome, setTimeout, clearTimeout};
   runInNewContext(script, global);
   const capture = global.ChromeImages;
   await capture.watch(id.tabId);
