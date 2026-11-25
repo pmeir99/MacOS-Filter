@@ -131,6 +131,7 @@ async function filterImage(imageData, description, thumbnail, background, sender
   }
   let remote;
   if (thumbnail) {
+    if (silhouettes && !captureEnabled) throw Error("Chrome website access is disabled.");
     if ((silhouettes || settings.mode === "personBlur") && GoogleThumbnails.eligible(thumbnail,page))
       remote = {url:thumbnail,limit:1024*1024};
     else if (silhouettes && current.publicMedia && PublicMedia.eligible(thumbnail,page))
@@ -138,7 +139,7 @@ async function filterImage(imageData, description, thumbnail, background, sender
     else if (!silhouettes) throw Error("This image has no permitted pixel source.");
   }
   const readPixels = thumbnail && silhouettes ? async () => {
-    try { return await ChromeImages.read(thumbnail,sender); }
+    try { return await ChromeImages.read(thumbnail,sender,background); }
     catch (error) {
       if (remote) return readThumbnail(remote);
       throw error;
@@ -162,7 +163,7 @@ async function filterImage(imageData, description, thumbnail, background, sender
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.type === "watchPeopleImages" && sender.tab && peopleOnlyAt(current,parsed,sender.url,sender.tab.url)) {
+  if (message?.type === "watchPeopleImages" && sender.tab && captureEnabled && peopleOnlyAt(current,parsed,sender.url,sender.tab.url)) {
     ChromeImages.watch(sender.tab.id).then(tab => sendResponse(Boolean(tab)), () => sendResponse(false));
     return true;
   }
@@ -194,6 +195,7 @@ function serialize(fn){ const next=queue.then(fn); queue=next.catch(()=>{}); ret
 let current = null;
 let parsed = FilterPolicy.parse();
 let connecting = null;
+let captureEnabled = false;
 async function applySettings(input, owned = true) {
   const settings = FilterSettings.read(input);
   const granted = await chrome.permissions.contains({origins:["<all_urls>"]});
@@ -208,6 +210,7 @@ async function applySettings(input, owned = true) {
   await chrome.storage.local.set({enabled, siteRules, policy, ...(owned ? {browserOwned:true} : {})});
   parsed = rules;
   current = settings;
+  captureEnabled = enabled;
   await Promise.allSettled(ChromeImages.activeTabs().map(async tabId => {
     const tab = await chrome.tabs.get(tabId).catch(() => null);
     if (!enabled || !peopleOnlyAt(settings,rules,tab?.url)) await ChromeImages.stop(tabId);
@@ -249,11 +252,11 @@ function start() { initialize().catch(console.error); }
 chrome.webNavigation.onBeforeNavigate.addListener(({tabId,frameId,url}) => {
   if (frameId !== 0) return;
   ChromeImages.resume(tabId);
-  if (peopleOnlyAt(current,parsed,url)) ChromeImages.watch(tabId);
+  if (captureEnabled && peopleOnlyAt(current,parsed,url)) ChromeImages.watch(tabId);
 });
 chrome.webNavigation.onCommitted.addListener(({tabId,frameId,url}) => {
   if (frameId !== 0) return;
-  if (peopleOnlyAt(current,parsed,url)) ChromeImages.watch(tabId);
+  if (captureEnabled && peopleOnlyAt(current,parsed,url)) ChromeImages.watch(tabId);
   else ChromeImages.stop(tabId);
 });
 chrome.runtime.onStartup.addListener(start);
