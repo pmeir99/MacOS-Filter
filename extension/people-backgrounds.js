@@ -50,7 +50,12 @@ globalThis.PeopleBackgrounds = (() => {
       const current = () => !stopped && el.isConnected && records.get(el)===record;
       try {
         el.dataset.macosFilterBackgroundStage="read";
-        const bytes = await localBytes(record.url);
+        let bytes;
+        try { bytes = await localBytes(record.url); }
+        catch (error) {
+          // A normal web image may be no-store but still have a Chrome response.
+          if (!/^https?:/i.test(record.url)) throw error;
+        }
         if (!current()) return;
         el.dataset.macosFilterBackgroundStage="analysis";
         const response = await MacOSFilterHelpers.requestAnalysis({type:"filterImage",background:true,

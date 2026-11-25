@@ -15,6 +15,7 @@
     const delays = new WeakMap();
     const overlays = new WeakMap();
     const watched = new Set();
+    if (silhouettes) chrome.runtime.sendMessage({type:"watchPeopleImages"}).catch(()=>{});
     const verdicts = silhouettes ? MacOSFilterHelpers.silhouetteCache() : null;
     const backgrounds = silhouettes ? PeopleBackgrounds.create() : null;
     const roots = new Map();
@@ -215,6 +216,9 @@
       if (stopped || !(image instanceof HTMLImageElement) || !image.isConnected) return;
       const url = image.currentSrc || image.src;
       if (!url || currentURL.get(image) === url) return;
+      // A queued tile can change its resource before reaching this slot.
+      // Leave it eligible for the next successful load event.
+      if (silhouettes && (!image.complete || !image.naturalWidth || !image.naturalHeight)) return;
       const attempt = Symbol();
       attempts.set(image,attempt);
       currentURL.set(image, url);
@@ -235,7 +239,7 @@
             message.imageData=url.slice(url.indexOf(",")+1);
           } else {
             const width=image.naturalWidth, height=image.naturalHeight;
-            if (!width || !height || (!silhouettes && width*height>4000000)) throw Error("Image exceeds local capture budget.");
+            if (!silhouettes && (!width || !height || width*height>4000000)) throw Error("Image exceeds local capture budget.");
             const canvas=document.createElement("canvas");
             const scale = silhouettes ? Math.min(1,1536/Math.max(width,height)) : 1;
             canvas.width=Math.max(1,Math.round(width*scale)); canvas.height=Math.max(1,Math.round(height*scale));
@@ -310,7 +314,7 @@
         }
         restoreImage(image);
       } catch (error) {
-        if (!stopped && attempts.get(image)===attempt && image.isConnected && currentURL.get(image) === url) {
+        if (current() && currentURL.get(image) === url) {
           coverOnFailure(image, error && error.message);
         }
       }
@@ -479,10 +483,12 @@
     // The filter moves with its image. ResizeObserver handles size changes;
     // capturing load also catches responsive candidates selected by Chrome.
     const loaded = event => {
-      if (event.target instanceof HTMLImageElement) enqueue(event.target);
+      if (event.target instanceof HTMLImageElement) watchImage(event.target);
     };
     const failed = event => {
-      if (event.target instanceof HTMLImageElement) coverOnFailure(event.target, "Image load failed.");
+      const image = event.target;
+      if (!(image instanceof HTMLImageElement)) return;
+      if (!silhouettes || (image.complete && !image.naturalWidth)) coverOnFailure(image, "Image load failed.");
     };
     observeRoot(document);
     scan(document);

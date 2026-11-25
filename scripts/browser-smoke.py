@@ -242,6 +242,25 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
         raise
     painted=Image.open(BytesIO(card.screenshot())).convert("RGB")
     assert painted.getpixel((32,40))==(17,34,51) and painted.getpixel((130,40))==(255,136,51)
+    # A freshly loaded, cross-origin product thumbnail must use the bytes
+    # Chrome received. The server sends neither CORS nor cache headers allowing a second read.
+    # Permit its frame in this fixture without weakening the blocked-domain test above.
+    settings["siteRules"]["blocked"]=""
+    push()
+    requests_before=len(image_requests)
+    sample.goto(url+"/foreign-test")
+    try:
+        sample.wait_for_selector('img[data-macos-filter-status="people-masked"]',timeout=12000)
+    except Exception:
+        print("Cross-origin thumbnail:", sample.locator("img").evaluate(
+            "img=>[img.dataset.macosFilterStatus,img.dataset.macosFilterReason,img.complete,img.naturalWidth]"),flush=True)
+        raise
+    _, generic=capture("generic-cdn-masked")
+    assert generic.getpixel((65,62))==(17,34,51)
+    assert generic.getpixel((137,75))==a.getpixel((137,75))
+    assert len(image_requests)==requests_before+1, image_requests
+    print("Unknown origin, no CORS, no-store: masked in place with one image request.",flush=True)
+
     # Run the production popup document against the real active website tab.
     # A same-extension frame keeps the toolbar UI inspectable in headless CI.
     assert cfg["action"]["default_popup"]=="popup.html" and cfg["options_ui"]["open_in_tab"]

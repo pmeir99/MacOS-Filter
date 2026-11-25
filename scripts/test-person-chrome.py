@@ -34,6 +34,24 @@ class Fixture(BaseHTTPRequestHandler):
                     ''.join(f'<img id="{name}" alt="{name}" width="180" height="180" src="{thumbnail(name)}">'
                             for name in identifiers) + '</main></body>').encode()
             mime = "text/html"
+        elif url.path == "/retail":
+            cdn = "https://media.fixture-cdn.test"
+            body = f"""<!doctype html><style>
+              body{{background:white;margin:0}}
+              #suggestion{{width:46px;height:46px;object-fit:cover;border-radius:50%}}
+            </style><picture><source srcset="{cdn}/portrait.png">
+            <img id="sku" width="180" height="180" src="/coffee.png"></picture>
+            <img id="suggestion" src="{cdn}/tiny-portrait.png">
+            <img id="neutral" width="180" height="180" src="{cdn}/coffee.png">""".encode()
+            mime = "text/html"
+        elif url.path == "/tiny-portrait.png":
+            value=Image.open(portrait).convert("RGB")
+            value.thumbnail((64,64))
+            buf=BytesIO()
+            value.save(buf,format="PNG")
+            body=buf.getvalue()
+            mime="image/png"
+            requests.append((self.headers.get("Host"), self.headers.get("Sec-Fetch-Dest"), self.headers.get("Cookie")))
         elif url.path == "/gallery":
             wiki = "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/91/A.jpg/250px-A.jpg?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail"
             xphoto = "https://pbs.twimg.com/media/fixture?format=jpg&name=small"
@@ -120,7 +138,7 @@ with tempfile.TemporaryDirectory() as temp, sync_playwright() as pw:
         ctx=pw.chromium.launch_persistent_context(str(profile),channel="chromium",
             args=[f"--disable-extensions-except={extension}",f"--load-extension={extension}",
                   "--no-proxy-server","--disable-quic",f"--ignore-certificate-errors-spki-list={spki}",
-                  f"--host-resolver-rules=MAP www.google.com 127.0.0.1:{port},MAP encrypted-tbn0.gstatic.com 127.0.0.1:{port},MAP en.wikipedia.org 127.0.0.1:{port},MAP thumb.wikimedia.org 127.0.0.1:{port},MAP x.com 127.0.0.1:{port},MAP pbs.twimg.com 127.0.0.1:{port}"])
+                  f"--host-resolver-rules=MAP www.google.com 127.0.0.1:{port},MAP encrypted-tbn0.gstatic.com 127.0.0.1:{port},MAP en.wikipedia.org 127.0.0.1:{port},MAP thumb.wikimedia.org 127.0.0.1:{port},MAP x.com 127.0.0.1:{port},MAP pbs.twimg.com 127.0.0.1:{port},MAP retail.fixture.test 127.0.0.1:{port},MAP media.fixture-cdn.test 127.0.0.1:{port}"])
         options=ctx.new_page()
         options.goto(f"chrome-extension://{extension_id}/options.html")
         options.locator("#enabled").wait_for()
@@ -288,6 +306,23 @@ with tempfile.TemporaryDirectory() as temp, sync_playwright() as pw:
             setting("enabled",False)
             page.wait_for_selector('#bg[data-macos-filter-background]',state="detached")
             check_original_figure("restored")
+        setting("publicMedia",False)
+        setting("overlayStyle","blur")
+        setting("enabled",True)
+        page.bring_to_front()
+        count=sum(host=="media.fixture-cdn.test" for host,_,_ in requests)
+        page.goto("https://retail.fixture.test/retail")
+        try:
+            page.wait_for_selector('#sku[data-macos-filter-status="people-masked"]',timeout=15000)
+            page.wait_for_selector('#suggestion[data-macos-filter-status="people-masked"]',timeout=15000)
+            page.wait_for_selector('#neutral[data-macos-filter-status="no-person-detected"]',timeout=15000)
+        except Exception:
+            print("Retail scan:",page.locator("img").evaluate_all(
+                "images=>images.map(img=>[img.id,img.dataset.macosFilterStatus,img.dataset.macosFilterReason])"),flush=True)
+            raise
+        assert sum(host=="media.fixture-cdn.test" for host,_,_ in requests)==count+3, requests
+        assert page.locator("#suggestion").evaluate("img=>getComputedStyle(img).borderRadius==='50%'")
+        print("Retail fixture: responsive CDN photo and 46px suggestion masked, clear image preserved, exactly three CDN requests.",flush=True)
         print("Silhouettes passed: face, pair, background pixels, no-person, rounded clip, buttons, CSS background, shadow DOM, responsive picture, lazy image and recycled blob.",flush=True)
         ctx.close()
     finally:

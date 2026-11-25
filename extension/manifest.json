@@ -3,14 +3,16 @@
   "name": "MacOS Filter",
   "version": "0.4.0",
   "description": "On-device image filtering through the MacOS Filter app.",
-  "minimum_chrome_version": "116",
+  "minimum_chrome_version": "125",
   "permissions": [
     "activeTab",
     "nativeMessaging",
     "scripting",
     "storage",
     "declarativeNetRequestWithHostAccess",
-    "alarms"
+    "alarms",
+    "debugger",
+    "webNavigation"
   ],
   "optional_host_permissions": [
     "<all_urls>"

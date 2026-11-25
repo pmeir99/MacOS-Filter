@@ -1,4 +1,4 @@
-importScripts("helpers.js","policy.js","settings.js","google-thumbnails.js","public-media.js");
+importScripts("helpers.js","policy.js","settings.js","google-thumbnails.js","public-media.js","chrome-images.js");
 
 const HOST_NAME = "com.pmeir99.macos_filter";
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -82,9 +82,9 @@ async function segmentPixels(imageData, profile) {
   }
   return {...await request};
 }
-async function scheduledAnalysis(imageData, profile, thumbnail, paintSettings) {
-  const cost = thumbnail ? 4*Math.ceil(thumbnail.limit/3) : imageData?.length;
-  if (!thumbnail && (typeof imageData !== "string" || !imageData.length || imageData.length > 4 * Math.ceil(MAX_IMAGE_BYTES/3))) throw Error("Invalid local image payload.");
+async function scheduledAnalysis(imageData, profile, readPixels, background) {
+  const cost = readPixels ? 4*Math.ceil(MAX_IMAGE_BYTES/3) : imageData?.length;
+  if (!readPixels && (typeof imageData !== "string" || !imageData.length || imageData.length > 4 * Math.ceil(MAX_IMAGE_BYTES/3))) throw Error("Invalid local image payload.");
   if (active >= 2) {
     if (waiting.length >= 64 || queuedBytes + cost > 32*1024*1024) return {retry:true};
     queuedBytes += cost;
@@ -92,15 +92,27 @@ async function scheduledAnalysis(imageData, profile, thumbnail, paintSettings) {
     queuedBytes -= cost;
   } else active++;
   try {
-    if (thumbnail) imageData = await readThumbnail(thumbnail);
+    if (readPixels) imageData = await readPixels();
     const result = await segmentPixels(imageData,profile);
-    if (paintSettings && thumbnail && result.ok && result.personDetected && result.maskData) result.sourceBytes=imageData;
+    if (background && readPixels && result.ok && result.personDetected && result.maskData) result.sourceBytes=imageData;
     return result;
   }
   finally { const next=waiting.shift(); if(next) next(); else active--; }
 }
 
-async function filterImage(imageData, description, page, thumbnail, background, tabURL) {
+function peopleOnlyAt(settings, rules, frameURL, tabURL = frameURL) {
+  if (!settings?.enabled) return false;
+  try {
+    const frame = new URL(frameURL), tab = new URL(tabURL || frameURL);
+    if (!["http:", "https:"].includes(frame.protocol) || !["http:", "https:"].includes(tab.protocol)) return false;
+    const {excluded,profile} = FilterPolicy.pageRules(rules,frame.hostname,tab.hostname);
+    return !excluded && (profile?.mode || settings.mode) === "peopleOnly";
+  } catch { return false; }
+}
+
+async function filterImage(imageData, description, thumbnail, background, sender) {
+  const page = sender.url || sender.tab?.url;
+  const tabURL = sender.tab?.url || page;
   const host = new URL(page).hostname;
   if (!current) await initialize();
   if (!current) throw Error("The local helper is unavailable.");
@@ -123,12 +135,19 @@ async function filterImage(imageData, description, page, thumbnail, background, 
       remote = {url:thumbnail,limit:1024*1024};
     else if (silhouettes && current.publicMedia && PublicMedia.eligible(thumbnail,page))
       remote = {url:thumbnail,limit:MAX_IMAGE_BYTES};
-    else throw Error("This image has no permitted pixel source.");
+    else if (!silhouettes) throw Error("This image has no permitted pixel source.");
   }
-  if (imageData === undefined && !remote)
+  const readPixels = thumbnail && silhouettes ? async () => {
+    try { return await ChromeImages.read(thumbnail,sender); }
+    catch (error) {
+      if (remote) return readThumbnail(remote);
+      throw error;
+    }
+  } : remote ? () => readThumbnail(remote) : null;
+  if (imageData === undefined && !readPixels)
     return {ok:true,needsPixels:true,personMode:silhouettes || settings.mode==="personBlur",silhouettes};
   const {siteRules, ...analysis} = current;
-  const result = await scheduledAnalysis(imageData, {...profile, analysis}, remote, background ? settings : null);
+  const result = await scheduledAnalysis(imageData, {...profile, analysis}, readPixels, background);
   if (silhouettes && !result.retry) {
     if (!result.ok || typeof result.personDetected !== "boolean" ||
         (result.personDetected && !result.maskData)) throw Error(result.error || "Person segmentation unavailable.");
@@ -143,8 +162,12 @@ async function filterImage(imageData, description, page, thumbnail, background, 
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (!message || message.type !== "filterImage") return false;
-  filterImage(message.imageData, message.description, sender.url || sender.tab?.url, message.thumbnail, message.background === true, sender.tab?.url)
+  if (message?.type === "watchPeopleImages" && sender.tab && peopleOnlyAt(current,parsed,sender.url,sender.tab.url)) {
+    ChromeImages.watch(sender.tab.id).then(tab => sendResponse(Boolean(tab)), () => sendResponse(false));
+    return true;
+  }
+  if (message?.type !== "filterImage" || !sender.tab) return false;
+  filterImage(message.imageData, message.description, message.thumbnail, message.background === true, sender)
     .then(sendResponse)
     .catch(error => sendResponse({ ok: false, coverWholeImage: true, error: error.message }));
   return true;
@@ -185,6 +208,10 @@ async function applySettings(input, owned = true) {
   await chrome.storage.local.set({enabled, siteRules, policy, ...(owned ? {browserOwned:true} : {})});
   parsed = rules;
   current = settings;
+  await Promise.allSettled(ChromeImages.activeTabs().map(async tabId => {
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (!enabled || !peopleOnlyAt(settings,rules,tab?.url)) await ChromeImages.stop(tabId);
+  }));
   if (enabled && (!previous.enabled || previous.siteRules?.excluded !== siteRules.excluded)) {
     const tabs = await chrome.tabs.query({url:["http://*/*","https://*/*"]});
     await Promise.allSettled(tabs.filter(tab => !FilterPolicy.excludes(new URL(tab.url).hostname, rules.excluded)).map(async tab => {
@@ -219,6 +246,16 @@ function initialize() {
   return connecting;
 }
 function start() { initialize().catch(console.error); }
+chrome.webNavigation.onBeforeNavigate.addListener(({tabId,frameId,url}) => {
+  if (frameId !== 0) return;
+  ChromeImages.resume(tabId);
+  if (peopleOnlyAt(current,parsed,url)) ChromeImages.watch(tabId);
+});
+chrome.webNavigation.onCommitted.addListener(({tabId,frameId,url}) => {
+  if (frameId !== 0) return;
+  if (peopleOnlyAt(current,parsed,url)) ChromeImages.watch(tabId);
+  else ChromeImages.stop(tabId);
+});
 chrome.runtime.onStartup.addListener(start);
 chrome.runtime.onInstalled.addListener(start);
 chrome.alarms.onAlarm.addListener(alarm => { if (alarm.name === "helperReconnect" && !nativePort) start(); });
