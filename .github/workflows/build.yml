@@ -63,7 +63,8 @@ jobs:
                 await github.rest.actions.cancelWorkflowRun({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
-                  run_id: run.id
+                  run_id: run.id,
+                  request: {parseSuccessResponseBody: false}
                 });
               } catch (error) {
                 if (error.status !== 404 && error.status !== 409) throw error;
@@ -85,6 +86,7 @@ jobs:
                 repo: context.repo.repo,
                 workflow_id: "build.yml",
                 ref: branch,
+                request: {parseSuccessResponseBody: false},
                 inputs: { race_id: raceId, runner_label, version: "0.4." + process.env.GITHUB_RUN_NUMBER }
               })
             ));
@@ -147,7 +149,8 @@ jobs:
                 await github.rest.git.deleteRef({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
-                  ref
+                  ref,
+                  request: {parseSuccessResponseBody: false}
                 });
               } catch (error) {
                 if (error.status !== 404 && error.status !== 422) throw error;
@@ -243,7 +246,7 @@ jobs:
               });
               await Promise.all(data.workflow_runs.filter(run => run.id !== context.runId && !cancelled.has(run.id)).map(async run => {
                 if (run.status !== "completed") {
-                  try { await github.rest.actions.cancelWorkflowRun({...context.repo, run_id: run.id}); }
+                  try { await github.rest.actions.cancelWorkflowRun({...context.repo, run_id: run.id, request: {parseSuccessResponseBody: false}}); }
                   catch (error) { if (![404,409].includes(error.status)) throw error; }
                 }
                 cancelled.add(run.id);
@@ -259,7 +262,8 @@ jobs:
             await github.rest.actions.cancelWorkflowRun({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              run_id: context.runId
+              run_id: context.runId,
+              request: {parseSuccessResponseBody: false}
             });
 
       - name: Check out source

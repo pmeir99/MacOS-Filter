@@ -2,7 +2,7 @@
 // owns them: on feed cards that would also filter labels and touch targets.
 globalThis.PeopleBackgrounds = (() => {
   const selector = '[style*="background" i],[role="img"]';
-  const placeholder = "linear-gradient(transparent, transparent)";
+  const placeholder = "linear-gradient(Canvas, Canvas)";
   function create() {
     const records = new Map(), queue = new Set(), classCandidates = new Set();
     let idle = null;
@@ -109,7 +109,9 @@ globalThis.PeopleBackgrounds = (() => {
       const record={url:match[1],inline:el.style.getPropertyValue("background-image"),
         priority:el.style.getPropertyPriority("background-image"),applied:""};
       records.set(el,record);
-      write(el,record,placeholder);
+      // Leave the original as a lower layer while Chrome loads it. Replacing
+      // its URL here could cancel the only response available for scanning.
+      write(el,record,placeholder+", "+value);
       el.dataset.macosFilterBackground="scanning";
       queue.add(el);pump();
     }
