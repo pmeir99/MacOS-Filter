@@ -108,7 +108,7 @@ globalThis.ChromeImages = (() => {
     return [tree.frame, ...(tree.childFrames || []).flatMap(frames)];
   }
 
-  async function read(url, sender) {
+  async function read(url, sender, waitForBackground = false) {
     const tabId = sender.tab?.id;
     if (!resourceURL(url) || !Number.isInteger(tabId) || !sender.documentId) throw Error("Unsupported browser image source.");
     const tab = await watch(tabId);
@@ -128,10 +128,23 @@ globalThis.ChromeImages = (() => {
     // The parent target may also describe the child frame. Require exactly one
     // target with matching image responses in this document's loader.
     const imageURL = resourceURL(url);
-    const sources = matches.flatMap(({frame, session}) => [...session.requests].filter(([, request]) =>
-      request.image && request.frameId === frame.id && request.loaderId === frame.loaderId &&
-      (request.url === imageURL || request.firstURL === imageURL)).map(([id, request]) => ({id, request, session})));
-    if (sources.length !== 1 || !sources[0].request.finished) throw Error("Image response unavailable in this tab. Reload to scan again.");
+    function candidates() {
+      return matches.flatMap(({frame, session}) => [...session.requests].filter(([, request]) =>
+        request.frameId === frame.id && request.loaderId === frame.loaderId &&
+        (request.url === imageURL || request.firstURL === imageURL)).map(([id, request]) => ({id, request, session})));
+    }
+    let sources = candidates();
+    // CSS may discover an image before Chrome starts its request. Give the
+    // original page load a brief opportunity to supply the response.
+    if (waitForBackground && !sources.some(({request}) => request.finished)) {
+      for (const delay of [80, 160, 320]) {
+        await new Promise(resolve => setTimeout(resolve, delay));
+        sources = candidates();
+        if (tab.closing || sources.some(({request}) => request.finished)) break;
+      }
+    }
+    if (sources.length !== 1 || !sources[0].request.finished || tab.closing)
+      throw Error("Image response unavailable in this tab. Reload to scan again.");
     const {id, session} = sources[0];
     const result = await send(session.target, "Network.getResponseBody", {requestId: id}).catch(() => null);
     const document = await chrome.webNavigation.getFrame({tabId, frameId: sender.frameId});

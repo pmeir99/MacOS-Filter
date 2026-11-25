@@ -24,10 +24,10 @@ image_requests = []
 class Fixture(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
-        if self.path == "/local-photo.png":
+        if self.path.startswith("/local-photo.png"):
             image_requests.append(self.path)
             self.send_header("Content-Type","image/png")
-            self.send_header("Cache-Control","no-store")
+            self.send_header("Cache-Control","public,max-age=180" if self.path.endswith("?cached") else "no-store")
             self.end_headers()
             self.wfile.write(encoded.getvalue())
             return
@@ -260,6 +260,31 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     assert generic.getpixel((137,75))==a.getpixel((137,75))
     assert len(image_requests)==requests_before+1, image_requests
     print("Unknown origin, no CORS, no-store: masked in place with one image request.",flush=True)
+
+    foreground = f"http://localhost:{server.server_port}/local-photo.png"
+    sample.evaluate("""src=>{const el=document.createElement('div');el.id='remoteBackground';
+      el.style.cssText='width:160px;height:90px;background-image:url("'+src+'?background")';
+      document.body.append(el);}""",foreground)
+    layer=sample.locator("#remoteBackground")
+    try:
+        sample.wait_for_selector('#remoteBackground[data-macos-filter-background="people-masked"]',timeout=12000)
+    except Exception:
+        print("Cross-origin background:",layer.evaluate(
+            "el=>[el.dataset.macosFilterBackground,el.dataset.macosFilterBackgroundReason]"),flush=True)
+        raise
+    painted=Image.open(BytesIO(layer.screenshot())).convert("RGB")
+    assert painted.getpixel((32,40))==(17,34,51) and painted.getpixel((130,40))==(255,136,51)
+    assert image_requests.count("/local-photo.png?background")==1,image_requests
+
+    for _ in range(2):
+        sample.locator("img").evaluate("(img,src)=>{img.src=src+'?cached'}",foreground)
+        sample.wait_for_function("""()=>{const img=document.querySelector('img');return img.currentSrc.endsWith('?cached')
+           && img.dataset.macosFilterStatus==='people-masked' && img.hasAttribute('data-mf-reviewed')}""")
+        sample.reload()
+        sample.wait_for_selector('img[data-macos-filter-status="people-masked"]',timeout=12000)
+    assert image_requests.count("/local-photo.png?cached")==1,image_requests
+    print("Cross-origin CSS background, changed image source and reused HTTP cache passed.",flush=True)
+    sample.goto(url)
 
     # Run the production popup document against the real active website tab.
     # A same-extension frame keeps the toolbar UI inspectable in headless CI.
